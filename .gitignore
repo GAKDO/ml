@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+.env
+secret.env
+# 학습 데이터·가중치는 MinIO에 둔다(레포에 넣지 않음)
+data/
+runs/
+*.pt
+*.onnx
+*.engine

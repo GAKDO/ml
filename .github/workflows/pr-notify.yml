@@ -1,0 +1,31 @@
+# PR이 리뷰 가능해지거나 머지되면(develop·main 모두) Discord·텔레그램에 알린다.
+# 레포 변수 DISCORD_ENABLED·TELEGRAM_ENABLED 중 하나가 true일 때만 동작.
+name: PR 알림
+
+# 언제 도나: PR이 열림·초안에서 리뷰 준비로 바뀜·다시 열림·닫힘. 코드 검사는 하지 않고 알림만 보낸다
+on:
+  pull_request:
+    types: [opened, ready_for_review, reopened, closed]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    # 초안이 아닌 PR이 열리면 '리뷰 요청', 닫혔는데 머지된 경우 '머지됨'. 머지하지 않고 닫은 PR은 알리지 않는다
+    if: >-
+      (vars.DISCORD_ENABLED == 'true' || vars.TELEGRAM_ENABLED == 'true') &&
+      ((github.event.action != 'closed' && !github.event.pull_request.draft) || github.event.pull_request.merged)
+    runs-on: ubuntu-latest
+    steps:
+      # 알림 composite action(.github/actions/notify)을 쓰려고 코드를 받는다
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/notify
+        with:
+          discord-webhook-url: ${{ vars.DISCORD_ENABLED == 'true' && (secrets.DISCORD_PR_WEBHOOK_URL || secrets.DISCORD_WEBHOOK_URL) || '' }}
+          telegram-bot-token: ${{ vars.TELEGRAM_ENABLED == 'true' && secrets.TELEGRAM_BOT_TOKEN || '' }}
+          telegram-chat-id: ${{ vars.TELEGRAM_ENABLED == 'true' && secrets.TELEGRAM_CHAT_ID || '' }}
+          title: "${{ github.event.pull_request.merged && '머지됨' || '리뷰 요청' }}: ${{ github.event.pull_request.title }}"
+          description: "#${{ github.event.pull_request.number }} · ${{ github.event.pull_request.user.login }} · ${{ github.event.pull_request.head.ref }} → ${{ github.event.pull_request.base.ref }}"
+          status: ${{ github.event.pull_request.merged && 'success' || 'info' }}
+          url: ${{ github.event.pull_request.html_url }}

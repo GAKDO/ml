@@ -1,0 +1,87 @@
+# CHANGELOG.md 맨 위 버전으로 태그와 GitHub Release를 만든다. 이미 있는 태그면 아무것도 하지 않는다. (블로그 release.yml을 옮김)
+name: release
+
+# 언제 도나: main에 CHANGELOG.md가 바뀐 push(develop→main 릴리스 PR 머지 또는 hotfix PR 머지)가 오거나 손으로 실행할 때
+# 흐름: CHANGELOG 맨 위 버전·노트 읽기 → 이전 태그 이후 머지된 PR 표 붙이기 → 태그 vX.Y.Z와 GitHub Release 만들기 → 알림
+# 배포는 하지 않는다(배포는 deploy.yml → gitops → Argo CD)
+on:
+  push:
+    branches: [main]
+    paths: [CHANGELOG.md]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      # CHANGELOG 맨 위 '## [x.y.z]'에서 버전을 꺼낸다. 아직 [Unreleased]뿐이면 조용히 건너뛴다(TRACE에서 바꾼 점)
+      - name: 맨 위 버전과 노트 읽기
+        id: notes
+        run: |
+          version=$(grep -m1 -oP '^## \[\K[0-9]+\.[0-9]+\.[0-9]+(?=\])' CHANGELOG.md || true)
+          if [ -z "$version" ]; then echo "릴리스할 버전이 아직 없습니다([Unreleased]만 있음). 건너뜁니다."; exit 0; fi
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" {on=1; next}
+            on && /^## \[/ {exit}
+            on {print}
+          ' CHANGELOG.md > release-notes.md
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: 비교 링크와 머지된 PR 붙이기
+        if: steps.notes.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.notes.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          prev=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null || true)
+          if [ -z "$prev" ] || [ "$prev" = "v$VERSION" ]; then echo "이전 태그가 없어 건너뜁니다."; exit 0; fi
+          prs=$(git log --format=%s "$prev..HEAD" | grep -oP '\(#\K[0-9]+(?=\)$)|^Merge pull request #\K[0-9]+' | sort -un || true)
+          {
+            echo
+            echo '### 머지된 PR (자동)'
+            if [ -n "$prs" ]; then
+              echo
+              echo '| PR | 제목 | 브랜치 |'
+              echo '|---|---|---|'
+              for n in $prs; do
+                gh pr view "$n" --repo "$REPO" --json number,title,headRefName \
+                  --jq '"| #\(.number) | \(.title | gsub("\\|"; "\\|")) | `\(.headRefName | gsub("\\|"; "\\|"))` |"' 2>/dev/null || echo "| #$n | | |"
+              done
+            else
+              echo
+              echo '없음'
+            fi
+            echo
+            echo "**비교:** [$prev...v$VERSION](https://github.com/$REPO/compare/$prev...v$VERSION)"
+          } >> release-notes.md
+      - name: 태그와 릴리스 만들기
+        id: release
+        if: steps.notes.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.notes.outputs.version }}
+        run: |
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "v$VERSION 태그가 이미 있습니다. 건너뜁니다."; exit 0
+          fi
+          prerelease=""
+          case "$VERSION" in 0.*) prerelease="--prerelease" ;; esac
+          gh release create "v$VERSION" --target "$GITHUB_SHA" --title "v$VERSION" --notes-file release-notes.md $prerelease
+          echo "created=true" >> "$GITHUB_OUTPUT"
+      - name: 알림 (Discord·텔레그램)
+        if: steps.release.outputs.created == 'true' && (vars.DISCORD_ENABLED == 'true' || vars.TELEGRAM_ENABLED == 'true')
+        uses: ./.github/actions/notify
+        with:
+          discord-webhook-url: ${{ vars.DISCORD_ENABLED == 'true' && secrets.DISCORD_WEBHOOK_URL || '' }}
+          telegram-bot-token: ${{ vars.TELEGRAM_ENABLED == 'true' && secrets.TELEGRAM_BOT_TOKEN || '' }}
+          telegram-chat-id: ${{ vars.TELEGRAM_ENABLED == 'true' && secrets.TELEGRAM_CHAT_ID || '' }}
+          title: "[${{ github.event.repository.name }}] 새 버전 v${{ steps.notes.outputs.version }}"
+          description: "${{ github.repository }} 릴리스"
+          status: success
+          url: ${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ steps.notes.outputs.version }}

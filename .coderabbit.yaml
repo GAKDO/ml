@@ -1,0 +1,24 @@
+# CodeRabbit AI 리뷰 설정. 레포에 CodeRabbit GitHub 앱을 설치하면 PR마다 이 파일을 읽는다.
+# (블로그 .coderabbit.yaml과 같은 방식: 한국어 리뷰 + 팀 설계 규칙을 리뷰 기준으로)
+language: ko-KR
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  auto_review:
+    enabled: true
+    drafts: false
+    # 기본 브랜치(main) 말고도 develop으로 가는 기능 PR을 리뷰한다(CONTRIBUTING.md, Git Flow)
+    base_branches:
+      - "^develop$"
+  path_filters:
+    - "!**/package-lock.json"
+  path_instructions:
+    - path: "src/**"
+      instructions: >-
+        데이터셋 분할이 기기 단위인지(한 기기가 두 분할에 없음), 같은 버전을 덮어쓰지 않는지, 결과에 model_version을 남기는지 본다.
+    - path: ".github/workflows/**"
+      instructions: >-
+        PR 제목·본문 같은 외부 입력을 run 스크립트에 직접 넣지 않는지, 권한(permissions)이 최소인지 본다.
+chat:
+  auto_reply: true

@@ -1,0 +1,48 @@
+# (블로그 AIGJ-01-002-blog/devlog의 .github/actions/notify를 그대로 옮김)
+# Discord·텔레그램에 같은 알림을 보낸다. 받을 곳의 값이 비어 있으면 그쪽은 건너뛰고, 전송 실패는 워크플로 결과를 바꾸지 않는다.
+# (민서님 이전 프로젝트 Webhook 레포의 _discord-notify.yml을 옮기고 텔레그램을 더함)
+# 켜고 끄기는 부르는 쪽에서 레포 변수 DISCORD_ENABLED·TELEGRAM_ENABLED로 값을 넘길지 정한다.
+name: notify
+description: Discord·텔레그램 알림
+inputs:
+  discord-webhook-url: {description: Discord 웹훅 주소 (Secret), required: false, default: ""}
+  telegram-bot-token: {description: 텔레그램 봇 토큰 (Secret), required: false, default: ""}
+  telegram-chat-id: {description: 텔레그램 대화방 ID (Secret), required: false, default: ""}
+  title: {description: 제목, required: true}
+  description: {description: 본문, required: false, default: ""}
+  status: {description: "success | failure | info (색과 아이콘)", required: false, default: info}
+  url: {description: 링크, required: false, default: ""}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        WEBHOOK: ${{ inputs.discord-webhook-url }}
+        TG_TOKEN: ${{ inputs.telegram-bot-token }}
+        TG_CHAT: ${{ inputs.telegram-chat-id }}
+        TITLE: ${{ inputs.title }}
+        DESC: ${{ inputs.description }}
+        STATUS: ${{ inputs.status }}
+        LINK: ${{ inputs.url }}
+      run: |
+        case "$STATUS" in
+          success) color=3066993; icon="✅" ;;
+          failure) color=15158332; icon="❌" ;;
+          *)       color=3447003; icon="🔔" ;;
+        esac
+        sent=0
+        if [ -n "$WEBHOOK" ]; then
+          payload=$(jq -n --arg t "$icon $TITLE" --arg d "$DESC" --arg u "$LINK" --argjson c "$color" \
+            '{embeds: [{title: $t, description: $d, url: (if $u == "" then null else $u end), color: $c}]}')
+          curl -sS -m 10 -f -H "Content-Type: application/json" -d "$payload" "$WEBHOOK" >/dev/null \
+            && sent=$((sent + 1)) || echo "::warning::Discord 알림 전송 실패 (결과에는 영향 없음)"
+        fi
+        if [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT" ]; then
+          text=$(printf '%s %s\n%s\n%s' "$icon" "$TITLE" "$DESC" "$LINK")
+          payload=$(jq -n --arg c "$TG_CHAT" --arg t "$text" '{chat_id: $c, text: $t, disable_web_page_preview: true}')
+          # 토큰이 로그에 남지 않도록 주소를 출력하지 않는다
+          curl -sS -m 10 -o /dev/null -f -H "Content-Type: application/json" -d "$payload" \
+            "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" 2>/dev/null \
+            && sent=$((sent + 1)) || echo "::warning::텔레그램 알림 전송 실패 (결과에는 영향 없음)"
+        fi
+        [ "$sent" -gt 0 ] || echo "알림 받을 곳이 설정되지 않아 건너뜁니다."
