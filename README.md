@@ -16,6 +16,15 @@ python -m pip install -e ".[dev]"
 python -m trace_ml
 ```
 
+| 명령 | 하는 일 | 기능 |
+|---|---|---|
+| `trace-ml labelstudio setup\|sync` | Label Studio 프로젝트·스토리지 설정, 작업 가져오기·주석 내보내기 | ML3 |
+| `trace-ml db init` | PostgreSQL `ml` 표 3개(없을 때만) | ML1 |
+| `trace-ml dataset device add\|list` | 기기 → 분할(TRAIN·VAL·TEST) | ML1 |
+| `trace-ml dataset build\|list` | 제출된 주석으로 기기 단위 데이터셋 버전(덮어쓰기 없음) | ML1 |
+
+설정은 환경 변수로 받습니다(`specs/002-dataset-builder/quickstart.md`).
+
 ## 테스트
 
 ```bash

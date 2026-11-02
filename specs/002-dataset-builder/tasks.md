@@ -10,11 +10,11 @@
 
 ## PR 2 빌더 (FR-DAT-04)
 
-- [ ] T005 `dataset/annotations.py`: 작업·주석 형식 읽기, 건너뛰기 제외, 주석 고르기, 검증(빈 제출·둘 다·클래스·키·점 수)
-- [ ] T006 `dataset/splits.py`: 기기 배정(수동 우선, 자동 70/15/15), 쓰인 기기 분할 변경 금지
-- [ ] T007 `dataset/builder.py`: 버전 이름, 중복 거절, 라벨·data.yaml·manifest 쓰기, 기록
-- [ ] T008 `__main__.py`: `db init`, `dataset device add|list`, `dataset build|list`
-- [ ] T009 [P] `tests/test_dataset_builder.py`: 스토리 1 수용 시나리오·경계 상황
+- [x] T005 `dataset/annotations.py`: 작업·주석 형식 읽기, 건너뛰기 제외, 주석 고르기, 검증(빈 제출·둘 다·클래스·키·점 수)
+- [x] T006 `dataset/splits.py`: 기기 배정(수동 우선, 자동 70/15/15), 쓰인 기기 분할 변경 금지
+- [x] T007 `dataset/builder.py`: 버전 이름, 중복 거절, 라벨·data.yaml·manifest 쓰기, 기록
+- [x] T008 `__main__.py`: `db init`, `dataset device add|list`, `dataset build|list`
+- [x] T009 [P] `tests/test_dataset_builder.py`: 스토리 1 수용 시나리오·경계 상황
 
 ## PR 3 학습 기록 (FR-DAT-05)
 
