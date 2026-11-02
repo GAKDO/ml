@@ -70,7 +70,7 @@ def test_받은_폴더는_YOLO_분할_구조이고_data_yaml이_그_폴더를_�
     trainer = FakeTrainer()
     _train(w, tmp_path, trainer)
     spec = trainer.specs[0]
-    data = yaml.safe_load(spec.data_yaml.read_text())
+    data = yaml.safe_load(spec.data_yaml.read_text(encoding="utf-8"))
     root = Path(data["path"])
     assert len(list((root / "images" / "train").glob("*.jpg"))) == len(list((root / "labels" / "train").glob("*.txt")))
     assert list((root / "images" / "test").glob("REG03_*.jpg"))

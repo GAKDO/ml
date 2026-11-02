@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-POLICY = json.loads((Path(__file__).parent.parent / "deploy/minio/trainer-policy.json").read_text())
+POLICY = json.loads((Path(__file__).parent.parent / "deploy/minio/trainer-policy.json").read_text(encoding="utf-8"))
 
 
 def _actions_on(bucket: str) -> set[str]:
