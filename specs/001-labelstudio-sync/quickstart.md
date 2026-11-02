@@ -27,3 +27,5 @@ trace-ml labelstudio sync        # 촬영 뒤마다
 | 타깃 스토리지 버킷 | `trace-labels` |
 | Use pre-signed URLs | 끔(프록시 모드) |
 | 키 | trace-labelstudio 계정 |
+
+이 주소는 HTTP라 Label Studio와 MinIO 사이에서 키와 사진이 암호화되지 않고 오간다. Label Studio는 학교 내부망(클러스터·학교 네트워크) 안에서만 돌리고, 학교 MinIO에 HTTPS S3 API 주소가 생기면 그 주소로 바꾼다.
