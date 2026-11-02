@@ -45,7 +45,8 @@ def face_size_mm(face: str, dims: DeviceDims) -> tuple[float, float]:
 def face_size_px(face: str, dims: DeviceDims) -> tuple[int, int]:
     """펼친 이미지 (가로, 세로) px."""
     w, h = face_size_mm(face, dims)
-    return round(w * PX_PER_MM), round(h * PX_PER_MM)
+    # 아주 얇은 치수도 0 px가 되지 않게 한다(0이면 윤곽 외삽에서 0으로 나눔)
+    return max(1, round(w * PX_PER_MM)), max(1, round(h * PX_PER_MM))
 
 
 def load_dims(env: Mapping[str, str]) -> DeviceDims:

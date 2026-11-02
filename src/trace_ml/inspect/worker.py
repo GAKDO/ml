@@ -83,18 +83,17 @@ def _req_str(data: Mapping[str, Any], key: str) -> str:
     return value
 
 
-def _parse_device(raw: Any) -> DeviceDims | None:
-    """이벤트 device{modelCode, dimensions{widthMm, depthMm, baseHMm, lidHMm}}. 없으면 None."""
-    if raw is None:
-        return None
+def _parse_device(raw: Any) -> DeviceDims:
+    """이벤트 device{modelCode, dimensions{widthMm, depthMm, baseHMm, lidHMm}}. null·객체 아님은 형식 오류."""
     if not isinstance(raw, dict) or not isinstance(raw.get("dimensions"), dict):
         raise InvalidMessage("device 형식이 아님")
     code = _req_str(raw, "modelCode")
     dims = raw["dimensions"]
     values: list[float] = []
-    for key in ("widthMm", "depthMm", "baseHMm", "lidHMm"):
+    # 범위는 contracts events/envelope.schema.json $defs/DeviceModel과 같다(폭·깊이 1000, 높이 100 이하)
+    for key, upper in (("widthMm", 1000), ("depthMm", 1000), ("baseHMm", 100), ("lidHMm", 100)):
         value = dims.get(key)
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= 1000:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= upper:
             raise InvalidMessage(f"device.dimensions.{key}가 올바르지 않음: {value!r}")
         values.append(float(value))
     return DeviceDims(code, width=values[0], depth=values[1], base_h=values[2], lid_h=values[3])
@@ -122,7 +121,8 @@ def parse_request(data: Any) -> InspectRequest:
     if not isinstance(need, bool):
         raise InvalidMessage("needDetection 없음")
     return InspectRequest(_req_str(data, "eventId"), _req_str(data, "rentalId"), _req_str(data, "checkpointId"),
-                          _req_str(data, "captureSetId"), need, tuple(photos), _parse_device(data.get("device")))
+                          _req_str(data, "captureSetId"), need, tuple(photos),
+                          _parse_device(data["device"]) if "device" in data else None)  # 키가 없을 때만 기본 기종
 
 
 def _encode_png(image: np.ndarray) -> bytes:

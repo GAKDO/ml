@@ -212,7 +212,8 @@ def test_device가_실린_입력_이벤트도_contracts_스키마를_통과한�
 
 
 @pytest.mark.parametrize("device", [
-    "GRAM", {"modelCode": "GRAM16-2024"}, {"modelCode": "X", "dimensions": {"widthMm": 0, "depthMm": 1,
+    None, "GRAM",
+    {"modelCode": "X", "dimensions": {"widthMm": 300, "depthMm": 200, "baseHMm": 500, "lidHMm": 1}}, {"modelCode": "GRAM16-2024"}, {"modelCode": "X", "dimensions": {"widthMm": 0, "depthMm": 1,
                                                                               "baseHMm": 1, "lidHMm": 1}},
     {"modelCode": "X", "dimensions": {"widthMm": "357", "depthMm": 1, "baseHMm": 1, "lidHMm": 1}},
 ])
@@ -221,3 +222,9 @@ def test_device_형식이_틀리면_InvalidMessage다(device: object) -> None:
     event["device"] = device
     with pytest.raises(InvalidMessage):
         parse_request(event)
+
+
+def test_아주_얇은_치수도_0px가_되지_않는다() -> None:
+    from trace_ml.inspect.faces import DeviceDims
+
+    assert face_size_px("SF", DeviceDims("X", width=0.1, depth=0.1, base_h=0.05, lid_h=0.05)) == (1, 1)
