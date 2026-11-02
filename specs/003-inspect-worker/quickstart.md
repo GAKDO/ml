@@ -13,7 +13,7 @@ trace-ml align eval --n 100 --json eval.json
 # 같은 면의 부스·폰 사진 사이 정합 오차
 trace-ml align pair booth-TOP-L1-CAM1.jpg phone-TOP.jpg --face TOP
 
-# 워커(집 PC). 설정은 deploy/inspect-worker/worker.env.example
+# 워커(집 PC, PR 2/2에서 추가). 설정은 deploy/inspect-worker/worker.env.example
 trace-ml inspect worker
 ```
 

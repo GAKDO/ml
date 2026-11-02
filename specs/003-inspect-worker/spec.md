@@ -67,7 +67,7 @@ capture-server가 `trace.capture.uploaded`를 내면, 워커가 사진마다 윤
 ### 경계 상황
 
 - 기종 설정이 표에 없으면 워커가 시작하지 않는다.
-- 사진 디코딩 실패·윤곽 면적이 사진의 10% 미만이면 failedPhotos.
+- 사진 디코딩 실패·윤곽 면적이 사진의 0.5% 미만이면 failedPhotos(가는 옆면도 받기 위해 낮게 잡음).
 - 원근이 너무 커서 사각형이 볼록하지 않으면 failedPhotos.
 - 결과 이벤트를 보낸 뒤에 ack한다(publisher confirm). 보내기 전에 죽으면 다시 처리한다.
 

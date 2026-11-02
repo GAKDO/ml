@@ -67,7 +67,9 @@ def run(args: argparse.Namespace, env: Mapping[str, str]) -> int:
             if isinstance(result, AlignFailure):
                 print(f"실패: {result.reason}", file=sys.stderr)
                 return 1
-            cv2.imwrite(args.out, result.rectified)
+            if not cv2.imwrite(args.out, result.rectified):
+                print(f"실패: 펼친 이미지를 쓰지 못함: {args.out}", file=sys.stderr)
+                return 1
             print(json.dumps({"out": args.out, "errorPx": result.error_px,
                               "corners": result.corners.round(2).tolist()}, ensure_ascii=False))
             return 0
