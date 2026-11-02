@@ -8,9 +8,9 @@ ruff check . && pytest -q
 ## 집 PC에서 데이터셋 버전 만들기
 
 ```bash
-kubectl -n trace port-forward svc/postgres 5432:5432     # 다른 창에 띄워 둔다
+kubectl -n trace port-forward svc/postgres 5432:5432     # 다른 창에 띄워 둔다. 클러스터가 멈춘 동안은 집 PC 로컬 PostgreSQL(localhost:5432)
 export DB_USERNAME=... DB_PASSWORD=...                      # trace-secrets의 값, 채팅·코드에 쓰지 않음
-export MINIO_ENDPOINT=https://storage.java21.net
+export MINIO_ENDPOINT=http://storage.java21.net:8000          # S3 API(콘솔 https 주소가 아님)
 export TRAINER_MINIO_ACCESS_KEY=trace-trainer TRAINER_MINIO_SECRET_KEY=...   # deploy/minio/README.md, 없으면 팀 키
 trace-ml db init                                            # 처음 한 번
 trace-ml labelstudio sync                                   # 제출된 주석을 trace-labels로 내보내기(ML3)
