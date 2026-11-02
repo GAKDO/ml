@@ -1,0 +1,17 @@
+# 집 PC(Linux)에서 켜지면 자동으로 뜨는 inspect-worker (FR-OPS-01).
+# 설치: README의 "Linux" 절. 꺼져 있던 동안 쌓인 trace.inspect.requested는 켜지면 처리된다.
+[Unit]
+Description=TRACE inspect-worker (ML2)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/ml
+EnvironmentFile=%h/ml/deploy/inspect-worker/worker.env
+ExecStart=%h/ml/.venv/bin/trace-ml inspect worker
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

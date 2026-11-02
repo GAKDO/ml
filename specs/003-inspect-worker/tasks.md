@@ -12,14 +12,14 @@
 
 ## PR 2 워커 (FR-OPS-01, FR-RPT-01 텍스처, FR-INS-01 인터페이스)
 
-- [ ] T001a `pyproject.toml`: pika·redis
-- [ ] T005 [P] `inspect/detect.py`: Detector·NullDetector·길이·넓이
-- [ ] T006 `inspect/worker.py`: 해시 대조, 펼친 이미지·텍스처(이어 붙이기) 올리기, 결과 본문, stable_id
-- [ ] T007 `inspect/runner.py`: 선언(trace.dlx topic, dead 키), 처리→발행→ack, 3번 재시도, Redis 진행률
-- [ ] T010 CI: RabbitMQ 서비스, `TRACE_ML_TEST_AMQP`
-- [ ] T011 `deploy/inspect-worker/`: systemd·작업 스케줄러·worker.env 형식
-- [ ] T008a `cli.py`: `inspect worker`
-- [ ] T009a [P] 테스트: `test_inspect_worker.py`·`test_inspect_runner.py`(실제 RabbitMQ는 CI)
+- [x] T001a `pyproject.toml`: pika·redis
+- [x] T005 [P] `inspect/detect.py`: Detector·NullDetector·길이·넓이
+- [x] T006 `inspect/worker.py`: 해시 대조, 펼친 이미지·텍스처(이어 붙이기) 올리기, 결과 본문, stable_id
+- [x] T007 `inspect/runner.py`: 선언(trace.dlx topic, dead 키), 처리→발행→ack, 3번 재시도, Redis 진행률
+- [x] T010 CI: RabbitMQ 서비스, `TRACE_ML_TEST_AMQP`
+- [x] T011 `deploy/inspect-worker/`: systemd·작업 스케줄러·worker.env 형식
+- [x] T008a `cli.py`: `inspect worker`
+- [x] T009a [P] 테스트: `test_inspect_worker.py`·`test_inspect_runner.py`(실제 RabbitMQ는 CI)
 
 ## 사용자 장비·후속
 

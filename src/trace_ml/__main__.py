@@ -8,6 +8,7 @@
     trace-ml dataset build|list   제출된 주석으로 데이터셋 버전을 만든다(덮어쓰기 없음)
     trace-ml train v001           데이터셋 버전으로 학습, 가중치·ONNX·지표를 버전과 함께 기록
     trace-ml models list          모델 → 데이터셋 버전
+    trace-ml inspect worker       inspect-worker(ML2): 정합·펼친 면·텍스처 → trace.inspect.completed
     trace-ml align photo|eval|pair    윤곽 4점 정합 확인·정합 오차(px·mm) 재기
 """
 
@@ -72,7 +73,7 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
     environ = os.environ if env is None else env
     if args.tool == "labelstudio":
         return _labelstudio(args.command, environ)
-    if args.tool == "align":
+    if args.tool in ("inspect", "align"):
         return inspect_cli.run(args, environ)
     deps = deps or dataset_cli.Deps(environ)
     if args.tool in ("train", "models"):

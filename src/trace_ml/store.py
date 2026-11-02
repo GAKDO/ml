@@ -64,6 +64,13 @@ class Store:
                 return
             token = page.get("NextContinuationToken")
 
+    def put(self, bucket: str, key: str, body: bytes, content_type: str = "application/octet-stream") -> None:
+        """덮어쓰기 허용. 다시 만들 수 있는 파생물(펼친 이미지·텍스처)에만 쓴다."""
+        try:
+            self._s3.put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type)
+        except Exception as exc:
+            raise StoreError(f"{bucket}/{key} 쓰기 실패: {_code(exc) or type(exc).__name__}") from exc
+
     def put_new(self, bucket: str, key: str, body: bytes, content_type: str = "application/octet-stream",
                 metadata: dict[str, str] | None = None) -> None:
         """없을 때만 쓴다. 있으면 AlreadyExists. 덮어쓰기 금지(FR-DAT-04)의 마지막 방어선이다."""
