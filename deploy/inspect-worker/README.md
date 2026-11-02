@@ -19,16 +19,22 @@ cp deploy/inspect-worker/worker.env.example deploy/inspect-worker/worker.env   #
 
 클러스터 작업이 멈춘 동안 워커는 학교 서버(`10.116.64.12`) Compose의 RabbitMQ(`127.0.0.1:5672`)와 MinIO(`127.0.0.1:19000`)에 붙습니다. 두 포트는 밖에 열지 않고 SSH 터널로 집 PC의 `localhost:5672`·`localhost:9000`에 잇습니다. 실습 서버는 `s2.java21.net`, SSH 포트는 8822입니다.
 
+터널 전용 키를 따로 만들고, 서버에는 **두 포트 포워딩만 되는 키로** 등록합니다. 자동 시작 터널이 암호를 물으면 안 되므로 키 암호는 비우는 대신, 이 키로는 셸·다른 포워딩을 쓸 수 없게 막습니다.
+
 ```powershell
-ssh-keygen -t ed25519      # 한 번. 암호는 비움(자동 시작 터널이 묻지 않게)
-type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh -p 8822 <계정>@s2.java21.net "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
+ssh-keygen -t ed25519 -f $env:USERPROFILE\.ssh\trace_tunnel -N '""' -C trace-tunnel
+$pub = Get-Content $env:USERPROFILE\.ssh\trace_tunnel.pub
+$opts = 'restrict,port-forwarding,permitopen="127.0.0.1:5672",permitopen="127.0.0.1:19000"'
+"$opts $pub" | ssh -p 8822 <계정>@s2.java21.net "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
 ```
+
+`restrict`가 셸(pty)·에이전트·X11 포워딩을 모두 끄고, `permitopen`이 RabbitMQ·MinIO 두 포트만 열어 둡니다. 확인은 `ssh -p 8822 -i $env:USERPROFILE\.ssh\trace_tunnel <계정>@s2.java21.net`이 셸을 열지 못하고 끝나는 것으로 합니다. 예전에 제한 없이 등록한 키가 있으면 서버 `~/.ssh/authorized_keys`에서 그 줄을 지웁니다.
 
 터널 스크립트는 계정 이름이 들어가므로 레포 밖(예: `D:\trace\tunnel.ps1`)에 둡니다:
 
 ```powershell
 while ($true) {
-    ssh -N -p 8822 -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes `
+    ssh -N -p 8822 -i $env:USERPROFILE\.ssh\trace_tunnel -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes `
         -L 5672:127.0.0.1:5672 -L 9000:127.0.0.1:19000 <계정>@s2.java21.net
     Start-Sleep -Seconds 10
 }
