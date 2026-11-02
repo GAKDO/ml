@@ -39,3 +39,15 @@ def test_기기_정보는_고쳐_쓸_수_있다(reg: PgRegistry):
     reg.save_device(Device("G01", "미등록", "TRAIN"))
     reg.save_device(Device("G01", "MacBook Pro", "TRAIN", "gray"))
     assert reg.devices()["G01"].model_name == "MacBook Pro"
+
+
+def test_학습_기록은_데이터셋_버전에_묶이고_없는_버전이면_거절된다(reg: PgRegistry):
+    from trace_ml.registry import RegistryError, TrainingRun
+
+    v = DatasetVersion("v001", "v001/manifest.json", "a" * 40, {"devices": {}}, datetime(2026, 11, 5, tzinfo=UTC))
+    reg.add_version(v, [])
+    reg.add_run(TrainingRun("v001", "yolo11s-seg.pt", {"val": {}}, "v001/r/best.pt", "v001/r/best.onnx"))
+    [run] = reg.runs()
+    assert (run.dataset_version, run.onnx_key) == ("v001", "v001/r/best.onnx") and run.created_at
+    with pytest.raises(RegistryError):
+        reg.add_run(TrainingRun("v404", "x", {}, "k", "o"))

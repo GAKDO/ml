@@ -22,6 +22,8 @@ python -m trace_ml
 | `trace-ml db init` | PostgreSQL `ml` 표 3개(없을 때만) | ML1 |
 | `trace-ml dataset device add\|list` | 기기 → 분할(TRAIN·VAL·TEST) | ML1 |
 | `trace-ml dataset build\|list` | 제출된 주석으로 기기 단위 데이터셋 버전(덮어쓰기 없음) | ML1 |
+| `trace-ml train <버전>` | YOLO11-seg 학습, 가중치·ONNX·지표를 버전과 함께 `trace-models`·`ml.training_run`에 | ML1 |
+| `trace-ml models list` | 모델 → 데이터셋 버전 | ML1 |
 
 설정은 환경 변수로 받습니다(`specs/002-dataset-builder/quickstart.md`).
 

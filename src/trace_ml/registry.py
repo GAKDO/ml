@@ -41,12 +41,24 @@ class DatasetVersion:
     built_at: datetime
 
 
+@dataclass(frozen=True)
+class TrainingRun:
+    dataset_version: str
+    base_weights: str
+    metrics: dict[str, Any]
+    model_key: str
+    onnx_key: str
+    created_at: datetime | None = None
+
+
 class Registry(Protocol):
     def devices(self) -> dict[str, Device]: ...
     def save_device(self, device: Device) -> None: ...
     def used_devices(self) -> set[str]: ...
     def versions(self) -> list[DatasetVersion]: ...
     def add_version(self, version: DatasetVersion, new_devices: list[Device]) -> None: ...
+    def add_run(self, run: TrainingRun) -> None: ...
+    def runs(self) -> list[TrainingRun]: ...
 
 
 def used_in(versions: list[DatasetVersion]) -> set[str]:
@@ -124,3 +136,22 @@ class PgRegistry:
                 )
         except psycopg.errors.UniqueViolation as exc:
             raise VersionExists(f"데이터셋 버전 {version.version}이 이미 있음") from exc
+
+    def add_run(self, run: TrainingRun) -> None:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO ml.training_run (dataset_version_id, base_weights, metrics, model_key, onnx_key)"
+                " SELECT id, %s, %s::jsonb, %s, %s FROM ml.dataset_version WHERE version = %s",
+                (run.base_weights, json.dumps(run.metrics), run.model_key, run.onnx_key, run.dataset_version),
+            )
+            if cur.rowcount != 1:
+                raise RegistryError(f"데이터셋 버전 {run.dataset_version}이 없어 학습 기록을 남기지 못함")
+
+    def runs(self) -> list[TrainingRun]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT v.version, r.base_weights, r.metrics, r.model_key, r.onnx_key, r.created_at"
+                " FROM ml.training_run r JOIN ml.dataset_version v ON v.id = r.dataset_version_id"
+                " ORDER BY r.created_at, r.id"
+            ).fetchall()
+        return [TrainingRun(*r) for r in rows]

@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from trace_ml.registry import DatasetVersion, Device, VersionExists, used_in
+from trace_ml.registry import DatasetVersion, Device, RegistryError, TrainingRun, VersionExists, used_in
 from trace_ml.settings import MinioSettings
 from trace_ml.store import Store
 
@@ -65,6 +65,7 @@ class MemoryS3:
 class MemoryRegistry:
     device_rows: dict[str, Device] = field(default_factory=dict)
     version_rows: list[DatasetVersion] = field(default_factory=list)
+    run_rows: list[TrainingRun] = field(default_factory=list)
 
     def devices(self) -> dict[str, Device]:
         return dict(self.device_rows)
@@ -84,6 +85,14 @@ class MemoryRegistry:
         for d in new_devices:
             self.device_rows[d.code] = d
         self.version_rows.append(version)
+
+    def add_run(self, run: TrainingRun) -> None:
+        if not any(v.version == run.dataset_version for v in self.version_rows):
+            raise RegistryError(run.dataset_version)
+        self.run_rows.append(run)
+
+    def runs(self) -> list[TrainingRun]:
+        return list(self.run_rows)
 
 
 def polygon(cls: str, points: list[tuple[float, float]]) -> dict[str, Any]:
