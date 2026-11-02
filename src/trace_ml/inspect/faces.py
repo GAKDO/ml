@@ -23,7 +23,8 @@ class DeviceDims:
 
 
 # rental-server V2 시드와 같은 값(decisions.md 11/2: 폭·깊이는 Apple 사양, 두께는 B 실측).
-# 이벤트에 기종이 실리기 전까지 워커가 쓰는 표. 기종을 더하면 rental 시드와 함께 고친다.
+# 이벤트 trace.capture.uploaded에 device(기종·치수)가 없을 때 쓰는 기본 기종 표(TRACE_DEVICE_MODEL).
+# device가 실리면 그 치수를 쓰므로 새 기종은 rental 시드만 더하면 된다.
 DEVICE_MODELS: dict[str, DeviceDims] = {
     "MBA13-M2": DeviceDims("MBA13-M2", width=304.1, depth=215.0, base_h=7.0, lid_h=4.0),
 }

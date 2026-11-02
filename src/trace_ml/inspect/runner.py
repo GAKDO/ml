@@ -198,7 +198,7 @@ def serve(env: Mapping[str, str], store: Store, detector: Detector | None = None
             channel.confirm_delivery()
             declare(channel)
             consumer = Consumer(channel, lambda req: process(req, store, config, detector, progress))
-            log.info("inspect-worker 시작: 큐 %s, 기종 %s", QUEUE, config.dims.code)
+            log.info("inspect-worker 시작: 큐 %s, 기본 기종 %s(이벤트 device가 없을 때)", QUEUE, config.dims.code)
             total += consumer.run(idle_timeout)
             conn.close()
             return total

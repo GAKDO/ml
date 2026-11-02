@@ -183,3 +183,41 @@ def test_모르는_필드는_무시한다() -> None:
     event["newField"] = 1
     event["photos"][0]["extra"] = "x"
     assert parse_request(event).capture_set_id == pid("set1")
+
+
+GRAM = {"modelCode": "GRAM16-2024", "dimensions": {"widthMm": 357.7, "depthMm": 250.0, "baseHMm": 11.0, "lidHMm": 5.0}}
+
+
+def test_이벤트에_device가_있으면_그_기종_치수로_펼친다() -> None:
+    event, bodies = _booth_set()
+    event["device"] = GRAM
+    store, s3 = _store_with(event, bodies)
+    out = process(parse_request(event), store, CONFIG, now=NOW)
+    rect = s3.objects[("trace-derived", f"rectified/{pid('p1')}.png")][0]
+    assert cv2.imdecode(np.frombuffer(rect, np.uint8), cv2.IMREAD_COLOR).shape[:2] == (1000, 1431)
+    tex = s3.objects[("trace-derived", out["textureKeys"]["SF"])][0]
+    assert cv2.imdecode(np.frombuffer(tex, np.uint8), cv2.IMREAD_COLOR).shape[:2] == (64, 1431)
+
+
+def test_device가_없으면_기본_기종으로_펼친다() -> None:
+    event, _ = _booth_set()
+    assert parse_request(event).dims is None
+
+
+def test_device가_실린_입력_이벤트도_contracts_스키마를_통과한다() -> None:
+    validator = contract_validator("trace.capture.uploaded.schema.json")
+    event, _ = _booth_set()
+    event["device"] = GRAM
+    assert not list(validator.iter_errors(event))
+
+
+@pytest.mark.parametrize("device", [
+    "GRAM", {"modelCode": "GRAM16-2024"}, {"modelCode": "X", "dimensions": {"widthMm": 0, "depthMm": 1,
+                                                                              "baseHMm": 1, "lidHMm": 1}},
+    {"modelCode": "X", "dimensions": {"widthMm": "357", "depthMm": 1, "baseHMm": 1, "lidHMm": 1}},
+])
+def test_device_형식이_틀리면_InvalidMessage다(device: object) -> None:
+    event, _ = _booth_set()
+    event["device"] = device
+    with pytest.raises(InvalidMessage):
+        parse_request(event)

@@ -51,6 +51,7 @@ class InspectRequest:
     capture_set_id: str
     need_detection: bool
     photos: tuple[PhotoRef, ...]
+    dims: DeviceDims | None = None  # 이벤트 device(기종·치수). 없으면 WorkerConfig.dims(기본 기종)
 
 
 @dataclass(frozen=True)
@@ -82,6 +83,23 @@ def _req_str(data: Mapping[str, Any], key: str) -> str:
     return value
 
 
+def _parse_device(raw: Any) -> DeviceDims | None:
+    """이벤트 device{modelCode, dimensions{widthMm, depthMm, baseHMm, lidHMm}}. 없으면 None."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or not isinstance(raw.get("dimensions"), dict):
+        raise InvalidMessage("device 형식이 아님")
+    code = _req_str(raw, "modelCode")
+    dims = raw["dimensions"]
+    values: list[float] = []
+    for key in ("widthMm", "depthMm", "baseHMm", "lidHMm"):
+        value = dims.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= 1000:
+            raise InvalidMessage(f"device.dimensions.{key}가 올바르지 않음: {value!r}")
+        values.append(float(value))
+    return DeviceDims(code, width=values[0], depth=values[1], base_h=values[2], lid_h=values[3])
+
+
 def parse_request(data: Any) -> InspectRequest:
     """필요한 키만 읽는다(모르는 필드는 무시, README '너그러운 소비자')."""
     if not isinstance(data, dict):
@@ -104,7 +122,7 @@ def parse_request(data: Any) -> InspectRequest:
     if not isinstance(need, bool):
         raise InvalidMessage("needDetection 없음")
     return InspectRequest(_req_str(data, "eventId"), _req_str(data, "rentalId"), _req_str(data, "checkpointId"),
-                          _req_str(data, "captureSetId"), need, tuple(photos))
+                          _req_str(data, "captureSetId"), need, tuple(photos), _parse_device(data.get("device")))
 
 
 def _encode_png(image: np.ndarray) -> bytes:
@@ -130,6 +148,7 @@ def process(req: InspectRequest, store: Store, config: WorkerConfig, detector: D
     """세트 하나를 처리해 trace.inspect.completed 본문을 돌려준다. 저장소 오류는 StoreError로 올린다(다시 시도)."""
     detector = detector or NullDetector()
     progress = progress or NoProgress()
+    dims = req.dims or config.dims  # 기종마다 표준 좌표 크기가 다르다(11/2 민서 결정)
     total = len(req.photos)
     done: list[_Done] = []
     failed: list[dict[str, str]] = []
@@ -146,7 +165,7 @@ def process(req: InspectRequest, store: Store, config: WorkerConfig, detector: D
             failed.append({"photoId": photo.photo_id, "reason": "사진을 읽지 못함(디코딩 실패)"})
             progress.report(req, "ALIGN", index, total)
             continue
-        result = align_photo(image, face_size_px(photo.face, config.dims))
+        result = align_photo(image, face_size_px(photo.face, dims))
         if isinstance(result, AlignFailure):
             failed.append({"photoId": photo.photo_id, "reason": result.reason})
             progress.report(req, "ALIGN", index, total)
