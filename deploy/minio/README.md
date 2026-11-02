@@ -10,7 +10,7 @@
 ## 만들기 (MinIO 관리자 권한이 있는 사람이 한 번)
 
 ```bash
-mc alias set trace https://storage.java21.net <관리자 키> <관리자 비밀>
+mc alias set trace http://storage.java21.net:8000 <관리자 키> <관리자 비밀>
 mc mb --ignore-existing trace/trace-datasets trace/trace-models
 mc admin policy create trace trace-trainer deploy/minio/trainer-policy.json
 mc admin user add trace trace-trainer '<새 비밀, 40자 이상 무작위>'
