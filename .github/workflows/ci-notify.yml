@@ -13,9 +13,14 @@ permissions:
 
 jobs:
   notify:
+    # 알림 줄이기: 실패는 언제나, 성공은 main·develop의 CI만 알린다.
+    # 배포 결과는 배포 워크플로의 알림 작업이 따로 보내고, 비밀값 검사는 실패만 알린다.
     if: >-
       (vars.DISCORD_ENABLED == 'true' || vars.TELEGRAM_ENABLED == 'true') &&
-      contains(fromJSON('["success", "failure", "timed_out"]'), github.event.workflow_run.conclusion)
+      contains(fromJSON('["success", "failure", "timed_out"]'), github.event.workflow_run.conclusion) &&
+      (github.event.workflow_run.conclusion != 'success' ||
+      (contains(fromJSON('["main", "develop"]'), github.event.workflow_run.head_branch) &&
+      !contains(fromJSON('["배포", "비밀값 검사"]'), github.event.workflow_run.name)))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
