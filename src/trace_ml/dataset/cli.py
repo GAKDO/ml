@@ -39,11 +39,17 @@ class Deps:
     """명령이 쓰는 외부 자원. 기본값은 실제 PostgreSQL·MinIO·git."""
 
     def __init__(self, env: Mapping[str, str], registry: Callable[[], Registry] | None = None,
-                 store: Callable[[], Store] | None = None, commit: Callable[[], Commit] | None = None) -> None:
+                 store: Callable[[], Store] | None = None, commit: Callable[[], Commit] | None = None,
+                 trainer: Callable | None = None) -> None:
         self.env = env
         self.registry = registry or (lambda: PgRegistry(load_db(env)))
         self.store = store or (lambda: make_store(load_minio(env)))
         self.commit = commit or git_commit
+        if trainer is None:
+            from ..training.yolo import train_yolo
+
+            trainer = train_yolo
+        self.trainer = trainer
 
 
 def run(args: argparse.Namespace, deps: Deps) -> int:

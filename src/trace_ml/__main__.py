@@ -6,6 +6,8 @@
     trace-ml db init              ml 스키마 표 3개를 없을 때만 만든다
     trace-ml dataset device add|list   기기 → 분할(TRAIN·VAL·TEST)
     trace-ml dataset build|list   제출된 주석으로 데이터셋 버전을 만든다(덮어쓰기 없음)
+    trace-ml train v001           데이터셋 버전으로 학습, 가중치·ONNX·지표를 버전과 함께 기록
+    trace-ml models list          모델 → 데이터셋 버전
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from .dataset import cli as dataset_cli
 from .labelstudio import setup as ls_setup
 from .labelstudio.client import LabelStudio, LabelStudioError
 from .labelstudio.config import ConfigError, Settings, load_settings
+from .training import cli as training_cli
 
 
 def make_client(settings: Settings) -> LabelStudio:
@@ -61,11 +64,15 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
     ls_parser = sub.add_parser("labelstudio", help="Label Studio 연동(ML3)")
     ls_parser.add_argument("command", choices=["setup", "sync"])
     dataset_cli.add_parsers(sub)
+    training_cli.add_parsers(sub)
     args = parser.parse_args(args_list)
     environ = os.environ if env is None else env
     if args.tool == "labelstudio":
         return _labelstudio(args.command, environ)
-    return dataset_cli.run(args, deps or dataset_cli.Deps(environ))
+    deps = deps or dataset_cli.Deps(environ)
+    if args.tool in ("train", "models"):
+        return training_cli.run(args, deps)
+    return dataset_cli.run(args, deps)
 
 
 if __name__ == "__main__":

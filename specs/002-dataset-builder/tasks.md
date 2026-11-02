@@ -18,11 +18,11 @@
 
 ## PR 3 학습 기록 (FR-DAT-05)
 
-- [ ] T011 `training/fetch.py`: manifest → 로컬 폴더, 해시 대조
-- [ ] T012 `training/yolo.py`: Ultralytics 학습·TEST 검증·ONNX 내보내기(함수 하나)
-- [ ] T013 `training/record.py`: 올리기(조건부·메타데이터), training_run 기록
-- [ ] T014 `__main__.py`: `train`, `models list`
-- [ ] T015 [P] `tests/test_training.py`: 스토리 2 수용 시나리오
+- [x] T011 `training/fetch.py`: manifest → 로컬 폴더, 해시 대조
+- [x] T012 `training/yolo.py`: Ultralytics 학습·TEST 검증·ONNX 내보내기(함수 하나)
+- [x] T013 `training/record.py`: 올리기(조건부·메타데이터), training_run 기록
+- [x] T014 `__main__.py`: `train`, `models list`
+- [x] T015 [P] `tests/test_training.py`: 스토리 2 수용 시나리오
 - [ ] T016 quickstart.md, README 명령 표
 
 ## 실제 환경 확인 (사용자 장비)
