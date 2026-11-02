@@ -28,4 +28,4 @@ trace-ml labelstudio sync        # 촬영 뒤마다
 | Use pre-signed URLs | 끔(프록시 모드) |
 | 키 | trace-labelstudio 계정 |
 
-이 주소는 HTTP라 Label Studio와 MinIO 사이에서 키와 사진이 암호화되지 않고 오간다. Label Studio는 학교 내부망(클러스터·학교 네트워크) 안에서만 돌리고, 학교 MinIO에 HTTPS S3 API 주소가 생기면 그 주소로 바꾼다.
+이 주소는 HTTP지만 S3 요청은 SigV4 서명이라 secret key 자체는 전송되지 않는다(Access Key ID와 서명만). 다만 사진 내용은 같은 망에서 보일 수 있고 가로챈 요청은 약 15분 안에 다시 보낼 수 있으므로, Label Studio는 학교 내부망(클러스터·학교 네트워크) 안에서만 돌린다. `LABEL_STUDIO_URL`도 HTTP라면 Label Studio API 토큰(`Authorization: Token`)은 서명이 아니라 값 그대로 가고 만료도 없으니, 노출이 의심되면 Label Studio에서 바로 새 토큰으로 바꾼다. 주석(trace-labels)도 암호화되지 않는다. HTTPS는 학교 관리자만 열 수 있어 MVP는 이대로 간다(A 11/2).
