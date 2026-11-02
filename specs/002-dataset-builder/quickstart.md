@@ -11,7 +11,7 @@ ruff check . && pytest -q
 kubectl -n trace port-forward svc/postgres 5432:5432     # 다른 창에 띄워 둔다
 export DB_USERNAME=... DB_PASSWORD=...                      # trace-secrets의 값, 채팅·코드에 쓰지 않음
 export MINIO_ENDPOINT=https://storage.java21.net
-export TRAINER_MINIO_ACCESS_KEY=... TRAINER_MINIO_SECRET_KEY=...   # 없으면 MINIO_ACCESS_KEY·MINIO_SECRET_KEY
+export TRAINER_MINIO_ACCESS_KEY=trace-trainer TRAINER_MINIO_SECRET_KEY=...   # deploy/minio/README.md, 없으면 팀 키
 trace-ml db init                                            # 처음 한 번
 trace-ml labelstudio sync                                   # 제출된 주석을 trace-labels로 내보내기(ML3)
 trace-ml dataset device add REG03 --split TEST --model "MacBook Air M2"   # 테스트 기기는 먼저 정한다
