@@ -15,6 +15,33 @@ cp deploy/inspect-worker/worker.env.example deploy/inspect-worker/worker.env   #
 
 먼저 손으로 한 번 띄워 봅니다: `set -a; . deploy/inspect-worker/worker.env; set +a; trace-ml inspect worker --idle 30`
 
+## 학교 서버 Compose에 붙기 (SSH 터널, 11/2)
+
+클러스터 작업이 멈춘 동안 워커는 학교 서버(`10.116.64.12`) Compose의 RabbitMQ(`127.0.0.1:5672`)와 MinIO(`127.0.0.1:19000`)에 붙습니다. 두 포트는 밖에 열지 않고 SSH 터널로 집 PC의 `localhost:5672`·`localhost:9000`에 잇습니다. 실습 서버는 `s2.java21.net`, SSH 포트는 8822입니다.
+
+터널 전용 키를 따로 만들고, 서버에는 **두 포트 포워딩만 되는 키로** 등록합니다. 자동 시작 터널이 암호를 물으면 안 되므로 키 암호는 비우는 대신, 이 키로는 셸·다른 포워딩을 쓸 수 없게 막습니다.
+
+```powershell
+ssh-keygen -t ed25519 -f $env:USERPROFILE\.ssh\trace_tunnel -N '""' -C trace-tunnel
+$pub = Get-Content $env:USERPROFILE\.ssh\trace_tunnel.pub
+$opts = 'restrict,port-forwarding,permitopen="127.0.0.1:5672",permitopen="127.0.0.1:19000"'
+"$opts $pub" | ssh -p 8822 <계정>@s2.java21.net "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+```
+
+`restrict`가 셸(pty)·에이전트·X11 포워딩을 모두 끄고, `permitopen`이 RabbitMQ·MinIO 두 포트만 열어 둡니다. 확인은 `ssh -p 8822 -i $env:USERPROFILE\.ssh\trace_tunnel <계정>@s2.java21.net`이 셸을 열지 못하고 끝나는 것으로 합니다. 예전에 제한 없이 등록한 키가 있으면 서버 `~/.ssh/authorized_keys`에서 그 줄을 지웁니다.
+
+터널 스크립트는 계정 이름이 들어가므로 레포 밖(예: `D:\trace\tunnel.ps1`)에 둡니다:
+
+```powershell
+while ($true) {
+    ssh -N -p 8822 -i $env:USERPROFILE\.ssh\trace_tunnel -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes `
+        -L 5672:127.0.0.1:5672 -L 9000:127.0.0.1:19000 <계정>@s2.java21.net
+    Start-Sleep -Seconds 10
+}
+```
+
+`worker.env`에는 `RABBITMQ_HOST=localhost`, `MINIO_ENDPOINT=http://localhost:9000`을 적고, RabbitMQ 계정과 MinIO 키는 서버 `~/gitops/compose/.env`의 `RABBITMQ_USERNAME`·`RABBITMQ_PASSWORD`, `MINIO_ACCESS_KEY`·`MINIO_SECRET_KEY` 값을 씁니다. Windows PowerShell에서 손으로 띄울 때는 다음을 실행합니다: `Get-Content deploy\inspect-worker\worker.env | Where-Object { $_ -match '^[A-Z_]+=' } | ForEach-Object { $n, $v = $_ -split '=', 2; Set-Item "env:$n" $v }; trace-ml inspect worker --idle 30`
+
 ## Linux (systemd 사용자 서비스)
 
 ```sh
@@ -33,7 +60,10 @@ PowerShell(관리자 아님)에서:
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File $HOME\ml\deploy\inspect-worker\start-worker.ps1"
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 Register-ScheduledTask -TaskName "TRACE inspect-worker" -Action $action -Trigger $trigger
+# 터널도 같은 방식으로 등록한다(-File D:\trace\tunnel.ps1, 작업 이름 "TRACE ssh tunnel")
 ```
+
+레포를 `$HOME\ml`이 아닌 곳(예: `D:\trace\ml`)에 받았으면 `-File` 경로를 그 위치로 바꿉니다.
 
 ## 확인
 
