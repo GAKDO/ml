@@ -7,7 +7,7 @@ name = "ml"
 version = "0.1.0"
 description = "TRACE ml: 집 PC 작업: inspect-worker·recon-worker(실험)·데이터셋 빌더·YOLO11-seg 학습"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["requests>=2.31"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]
