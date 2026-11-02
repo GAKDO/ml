@@ -156,7 +156,7 @@ class Consumer:
                                      message_id=event["eventId"], type=OUT_KEY)
         self._ch.basic_publish(exchange=EXCHANGE, routing_key=OUT_KEY,
                                body=json.dumps(event, ensure_ascii=False).encode(), properties=props,
-                               mandatory=False)
+                               mandatory=True)  # 받을 큐가 없으면(capture-server 큐 미선언) 예외 → 재시도·DLQ, 유실 없음
 
     def run(self, idle_timeout: float | None = None) -> int:
         """메시지를 처리한다. idle_timeout초 동안 아무것도 없으면 돌아온다(None이면 계속). 처리한 수를 돌려준다."""

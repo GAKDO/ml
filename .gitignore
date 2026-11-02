@@ -14,3 +14,6 @@ runs/
 *.pt
 *.onnx
 *.engine
+
+# inspect-worker 집 PC 비밀 값
+deploy/inspect-worker/worker.env

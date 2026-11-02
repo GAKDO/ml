@@ -175,3 +175,19 @@ def test_워커를_끈_채_올린_3건이_워커를_켜면_모두_처리된다()
     dead = ch.basic_get(DEAD_KEY, auto_ack=True)
     assert dead[0] is not None and dead[2] == b"broken"
     conn.close()
+
+
+def test_결과_이벤트는_받을_큐가_없으면_실패하도록_mandatory로_보낸다() -> None:
+    seen = {}
+
+    class Ch(FakeChannel):
+        def basic_publish(self, exchange: str, routing_key: str, body: bytes, properties: Any,
+                          mandatory: bool) -> None:
+            seen["mandatory"] = mandatory
+            if mandatory:
+                raise RuntimeError("unroutable")
+
+    ch = Ch()
+    result = Consumer(ch, lambda req: OK_RESULT, sleep=lambda s: None).on_message(SimpleNamespace(delivery_tag=9),
+                                                                                    _event_body())
+    assert seen["mandatory"] is True and result == "failed" and ch.calls == [("reject", (9, False))]
