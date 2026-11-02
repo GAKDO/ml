@@ -18,12 +18,12 @@
 
 (민서가 "묻지 말고 진행"을 요청해, 11/2 저녁 공유·decisions.md 11/2·faces.md에 맞는 답을 골라 적었다.)
 
-- Q: 펼친 이미지 크기를 정하려면 기종 치수가 필요한데 `trace.capture.uploaded`에 기종이 없다. 어디서 얻나요? → A: 워커 설정 `TRACE_DEVICE_MODEL`(기본 `MBA13-M2`)과 워커 안의 기종 치수 표(rental V2 시드와 같은 값: 304.1 × 215.0 mm, 본체 7.0·상판 4.0 mm)를 쓴다. 시연 기종이 하나뿐이라 충분하다. 기종이 늘면 계약 고정 뒤 "더하는 변경"으로 이벤트에 기종 치수를 넣는다(사용자에게 질문으로 올림)
+- Q: 펼친 이미지 크기를 정하려면 기종 치수가 필요한데 `trace.capture.uploaded`에 기종이 없다. 어디서 얻나요? → A: 워커 설정 `TRACE_DEVICE_MODEL`(기본 `MBA13-M2`)과 워커 안의 기종 치수 표(rental V2 시드와 같은 값: 304.1 × 215.0 mm, 본체 7.0·상판 4.0 mm)를 쓴다. 시연 기종이 하나뿐이라 충분하다. 기종이 늘면 계약 고정 뒤 "더하는 변경"으로 이벤트에 기종 치수를 넣는다(사용자에게 질문으로 올림). **11/2 갱신(민서 결정)**: 시연 기종이 맥북 에어 M2·LG 그램·델로 여럿이라 동결 전에 `trace.capture.uploaded`에 선택 필드 `device`{modelCode, dimensions}를 더했다(contracts #15). 워커는 `device`가 있으면 그 치수, 없으면 `TRACE_DEVICE_MODEL`을 쓴다
 - Q: 윤곽 4점은 180° 돌아간 것과 구분이 안 된다(faces.md). 방향은? → A: 간소화판은 사진이 faces.md "이미지 위쪽"을 위로 찍혔다고 본다(부스는 카메라 고정, 폰은 윤곽 가이드가 이 방향으로 그림). 네 점은 사진 안 위치(왼쪽 위·오른쪽 위·오른쪽 아래·왼쪽 아래)로 정렬한다. 특징점 보정(LIGHTGLUE)은 시간이 남으면 더한다
 - Q: 4점 호모그래피는 4점에서 오차가 항상 0이다. `errorPx`는 무엇인가요? → A: 윤곽 점 전체를 호모그래피로 옮긴 뒤 표준 직사각형 테두리까지의 거리 RMS(표준 좌표 px). 모서리가 둥글어 생기는 부분은 빼기 위해 꼭짓점 근처(짧은 변의 8%)는 재지 않는다. 윤곽을 못 찾으면 사진을 `failedPhotos`에 사유와 함께 넣는다
 - Q: 텍스처는? → A: 면마다 정합에 성공한 사진 중 `errorPx`가 가장 작은 것의 펼친 이미지를 `textures/{captureSetId}/{face}.png`로 그대로 올린다. 같은 면 사진이 모두 실패하면 그 면은 `textureKeys`에서 빠진다
 - Q: 키 형식은? → A: contracts 예시와 같게 `rectified/{photoId}.png`, `textures/{captureSetId}/{face}.png`(버킷 `trace-derived`). 같은 세트를 다시 처리하면 같은 키에 같은 결과를 덮어쓴다(워커 결과는 원본이 아니라 다시 만들 수 있는 파생물이다)
-- Q: 폰 탐지는? → A: `Detector` 인터페이스(사진 → 원본 px 다각형·클래스·신뢰도)와, 호모그래피로 표준 px로 옮기고 길이·넓이(mm)를 재는 코드까지 만든다. 실제 모델은 B 답이 오기 전까지 `NullDetector`(빈 결과, 모델 버전 `detector-pending`)다. `needDetection`이 false(부스)면 탐지를 부르지 않는다
+- Q: 폰 탐지는? → A: `Detector` 인터페이스(사진 → 원본 px 다각형·클래스·신뢰도)와, 호모그래피로 표준 px로 옮기고 길이·넓이(mm)를 재는 코드까지 만든다. 실제 모델은 B 답이 오기 전까지 `NullDetector`(빈 결과, 모델 버전 `detector-pending`)다. `needDetection`이 false(부스)면 탐지를 부르지 않는다. **11/2 갱신(민서 결정)**: 폰 탐지는 A가 맡는다. `yolo_detect.TiledDetector`가 부스와 같은 학습 가중치(`TRACE_DETECT_WEIGHTS`, 옆에 model.json)·같은 타일링(640 px, 20% 겹침)·같은 중복 제거로 원본 px 다각형을 낸다. 가중치가 없으면 `NullDetector`
 - Q: 같은 이벤트가 두 번 오면? → A: 결과 이벤트의 `eventId`와 `defectId`를 입력 `eventId`·사진·순번의 해시로 만들어 다시 와도 같다(README 멱등)
 - Q: 진행률은? → A: `REDIS_HOST`가 있으면 Redis Pub/Sub 채널 `trace:progress:{rentalId}`에 `{"captureSetId","checkpointId","stage","done","total"}` JSON을 낸다(사진 하나 끝날 때마다). Redis가 없거나 실패해도 정합은 계속한다. report-server(RP2)가 이 채널을 구독한다
 - Q: 실패한 메시지는? → A: 형식이 틀린 메시지는 바로, 처리 중 오류는 3번 다시 해 본 뒤 `trace.dlx`(topic)에 `trace.inspect.requested.dead`로 보낸다(decisions.md 11/2 DLX 규칙)

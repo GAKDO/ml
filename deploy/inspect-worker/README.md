@@ -11,6 +11,8 @@ python -m pip install -e .
 cp deploy/inspect-worker/worker.env.example deploy/inspect-worker/worker.env   # 값을 채운다(커밋 금지)
 ```
 
+폰 흠집 탐지까지 하려면(11/2 결정, A 담당) `python -m pip install -e ".[train]"`(ultralytics, CUDA torch)로 깔고, 학습 결과 `trace-models/<버전>/<실행>/best.pt`를 받아 같은 폴더에 부스와 같은 `model.json`(`{"modelVersion": "...", "classes": ["scratch","dent","crack","stain"]}`)을 둔 뒤 `TRACE_DETECT_WEIGHTS`에 경로를 적습니다. 비우면 폰 탐지는 건너뜁니다(modelVersion `detector-pending+contour-v1`).
+
 먼저 손으로 한 번 띄워 봅니다: `set -a; . deploy/inspect-worker/worker.env; set +a; trace-ml inspect worker --idle 30`
 
 ## Linux (systemd 사용자 서비스)

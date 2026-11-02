@@ -1,4 +1,4 @@
-"""폰 사진 흠집 탐지 인터페이스(FR-INS-01). 모델은 B 답이 오기 전까지 NullDetector.
+"""폰 사진 흠집 탐지 인터페이스(FR-INS-01). 구현은 yolo_detect.TiledDetector(부스와 같은 모델), 모델이 없으면 NullDetector.
 
 탐지기는 원본 사진 px 다각형을 내고, 워커가 정합 호모그래피로 표준 px로 옮겨 길이·넓이(mm)를 잰다.
 부스 탐지(Jetson)와 같은 모델·같은 좌표 변환을 쓰도록 이 경계를 둔다.
