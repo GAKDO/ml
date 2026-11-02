@@ -3,6 +3,9 @@
     trace-ml                      버전
     trace-ml labelstudio setup    프로젝트·소스(trace-raw)·타깃(trace-labels)을 없을 때만 만든다
     trace-ml labelstudio sync     새 사진을 작업으로 가져오고 주석을 trace-labels로 내보낸다
+    trace-ml db init              ml 스키마 표 3개를 없을 때만 만든다
+    trace-ml dataset device add|list   기기 → 분할(TRAIN·VAL·TEST)
+    trace-ml dataset build|list   제출된 주석으로 데이터셋 버전을 만든다(덮어쓰기 없음)
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ import sys
 from collections.abc import Mapping
 
 from . import __version__
+from .dataset import cli as dataset_cli
 from .labelstudio import setup as ls_setup
 from .labelstudio.client import LabelStudio, LabelStudioError
 from .labelstudio.config import ConfigError, Settings, load_settings
@@ -46,7 +50,8 @@ def _labelstudio(command: str, env: Mapping[str, str]) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) -> int:
+def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
+         deps: dataset_cli.Deps | None = None) -> int:
     args_list = sys.argv[1:] if argv is None else argv
     if not args_list:
         print(f"trace-ml {__version__}")
@@ -55,8 +60,12 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) ->
     sub = parser.add_subparsers(dest="tool", required=True)
     ls_parser = sub.add_parser("labelstudio", help="Label Studio 연동(ML3)")
     ls_parser.add_argument("command", choices=["setup", "sync"])
+    dataset_cli.add_parsers(sub)
     args = parser.parse_args(args_list)
-    return _labelstudio(args.command, os.environ if env is None else env)
+    environ = os.environ if env is None else env
+    if args.tool == "labelstudio":
+        return _labelstudio(args.command, environ)
+    return dataset_cli.run(args, deps or dataset_cli.Deps(environ))
 
 
 if __name__ == "__main__":
