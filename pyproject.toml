@@ -7,16 +7,21 @@ name = "ml"
 version = "0.1.0"
 description = "TRACE ml: 집 PC 작업: inspect-worker·recon-worker(실험)·데이터셋 빌더·YOLO11-seg 학습"
 requires-python = ">=3.11"
-dependencies = ["requests>=2.31"]
+dependencies = ["requests>=2.31", "boto3>=1.35", "psycopg[binary]>=3.2", "PyYAML>=6"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]
+# 집 PC 학습에만 필요 (torch 포함, 큼)
+train = ["ultralytics>=8.3"]
 
 [project.scripts]
 trace-ml = "trace_ml.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+trace_ml = ["sql/*.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

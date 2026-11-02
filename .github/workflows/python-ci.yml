@@ -24,6 +24,17 @@ jobs:
         os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    # 기록부(PgRegistry) 시험용. 운영과 같은 PostgreSQL 16, 스키마 ml은 init-db.sh처럼 앱 계정 소유
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: trace
+          POSTGRES_PASSWORD: trace-ci
+          POSTGRES_DB: trace
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U trace" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
@@ -37,4 +48,8 @@ jobs:
       - name: 테스트
         env:
           PYTHONUTF8: "1"
+          TRACE_ML_TEST_DB: "1"
+          POSTGRES_HOST: localhost
+          DB_USERNAME: trace
+          DB_PASSWORD: trace-ci
         run: python -m pytest -q
