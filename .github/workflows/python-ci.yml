@@ -46,6 +46,14 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      # 계약 스키마(ML2 이벤트 검사)는 raw.githubusercontent 캐시(약 5분) 대신 contracts develop을 바로 받는다.
+      # 계약 PR이 막 머지된 직후에도 옛 스키마로 검사하지 않게 한다
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: GAKDO/contracts
+          ref: develop
+          path: .contracts
+          persist-credentials: false
       - name: 설치
         run: python -m pip install -q -e ".[dev]"
       - name: ruff
@@ -53,6 +61,7 @@ jobs:
       - name: 테스트
         env:
           PYTHONUTF8: "1"
+          TRACE_CONTRACTS_DIR: .contracts
           TRACE_ML_TEST_DB: "1"
           POSTGRES_HOST: localhost
           DB_USERNAME: trace
