@@ -3,8 +3,7 @@ name: python-ci
 
 # 언제 도나: ① PR ② develop·main push. 워커·학습은 집 PC에서 돈다
 on:
-  pull_request:
-    paths-ignore: ["**/*.md"]
+  pull_request:   # PR은 문서만 바뀌어도 돈다: 필수 검사가 '대기'로 멈춰 머지가 막히지 않게
   push:
     branches: [main, develop]
     paths-ignore: ["**/*.md"]
