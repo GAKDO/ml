@@ -19,6 +19,7 @@ from ..labelstudio.config import ConfigError
 from ..settings import MinioSettings, _get
 from ..store import Store, make_store
 from .faces import DEVICE_MODELS, FACES, face_size_px, load_dims
+from .yolo_detect import load_detector
 
 
 def add_parsers(sub: Any) -> None:
@@ -84,7 +85,7 @@ def run(args: argparse.Namespace, env: Mapping[str, str], store: Store | None = 
             from .runner import serve
 
             store = store or make_store(load_worker_minio(env))
-            handled = serve(env, store, idle_timeout=args.idle)
+            handled = serve(env, store, detector=load_detector(env), idle_timeout=args.idle)
             print(f"처리한 메시지 {handled}개")
             return 0
         if args.command == "photo":

@@ -25,5 +25,6 @@
 
 - [ ] T013 집 PC에 설치·자동 시작 등록(README), 실제 세트 한 번 처리
 - [ ] T014 실제 부스·폰 사진으로 `align pair` → docs `contest/` 실측 수치
-- [ ] T015 폰 탐지 모델 연결(B 답 뒤): `Detector` 구현 하나 더하기
+- [x] T015 폰 탐지 모델 연결(11/2 A 담당 결정): `yolo_detect.TiledDetector` + `TRACE_DETECT_WEIGHTS`
+- [x] T016 이벤트 `device`(기종·치수)로 표준 좌표 크기 정하기(contracts #15)
 - [ ] T016 (시간 남으면) LIGHTGLUE 보정, 180° 판별
