@@ -24,6 +24,7 @@ python -m trace_ml
 | `trace-ml dataset build\|list` | 제출된 주석으로 기기 단위 데이터셋 버전(덮어쓰기 없음) | ML1 |
 | `trace-ml train <버전>` | YOLO11-seg 학습, 가중치·ONNX·지표를 버전과 함께 `trace-models`·`ml.training_run`에 | ML1 |
 | `trace-ml models list` | 모델 → 데이터셋 버전 | ML1 |
+| `trace-ml inspect worker` | 큐 `trace.inspect.requested`의 세트를 윤곽 4점으로 펼쳐 `trace-derived`에 올리고 `trace.inspect.completed`(집 PC 자동 시작: `deploy/inspect-worker/`) | ML2 |
 | `trace-ml align photo\|eval\|pair` | 사진 한 장 펼치기, 합성·실제 사진 정합 오차(px·mm) | ML2 |
 
 설정은 환경 변수로 받습니다(`specs/002-dataset-builder/quickstart.md`).

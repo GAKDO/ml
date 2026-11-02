@@ -1,5 +1,6 @@
-"""정합 명령(ML2).
+"""inspect-worker·정합 명령.
 
+    trace-ml inspect worker [--idle 초]   큐 trace.inspect.requested 처리(집 PC, 자동 시작)
     trace-ml align photo <사진> --face TOP [--out 펼친.png]
     trace-ml align eval [--n 100] [--faces TOP,SF,SL] [--json 결과.json]
     trace-ml align pair <부스 사진> <폰 사진> --face TOP
@@ -15,10 +16,17 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..labelstudio.config import ConfigError
+from ..settings import MinioSettings, _get
+from ..store import Store, make_store
 from .faces import DEVICE_MODELS, FACES, face_size_px, load_dims
 
 
 def add_parsers(sub: Any) -> None:
+    ins = sub.add_parser("inspect", help="inspect-worker(ML2)")
+    ins_sub = ins.add_subparsers(dest="command", required=True)
+    w = ins_sub.add_parser("worker", help="trace.inspect.requested를 처리")
+    w.add_argument("--idle", type=float, default=None, help="이 초 동안 메시지가 없으면 끝냄(기본: 계속)")
+
     al = sub.add_parser("align", help="윤곽 4점 정합 확인·오차 재기")
     al_sub = al.add_subparsers(dest="command", required=True)
     p = al_sub.add_parser("photo", help="사진 한 장을 펼친다")
@@ -35,6 +43,20 @@ def add_parsers(sub: Any) -> None:
     pr.add_argument("image_b")
     pr.add_argument("--face", required=True, choices=FACES)
     pr.add_argument("--json", default=None)
+
+
+def load_worker_minio(env: Mapping[str, str]) -> MinioSettings:
+    """worker 역할 키(trace-worker)가 없으면 팀 키를 쓴다. 값은 보여 주지 않는다."""
+    values = {
+        "MINIO_ENDPOINT": _get(env, "MINIO_ENDPOINT"),
+        "WORKER_MINIO_ACCESS_KEY": _get(env, "WORKER_MINIO_ACCESS_KEY", "MINIO_ACCESS_KEY"),
+        "WORKER_MINIO_SECRET_KEY": _get(env, "WORKER_MINIO_SECRET_KEY", "MINIO_SECRET_KEY"),
+    }
+    missing = [name for name, value in values.items() if not value]
+    if missing:
+        raise ConfigError("환경 변수가 없음: " + ", ".join(missing))
+    return MinioSettings(endpoint=values["MINIO_ENDPOINT"], access_key=values["WORKER_MINIO_ACCESS_KEY"],
+                         secret_key=values["WORKER_MINIO_SECRET_KEY"])
 
 
 def _read(path: str) -> Any:
@@ -54,10 +76,17 @@ def _dump(result: dict[str, Any], path: str | None) -> None:
             fh.write(text + "\n")
 
 
-def run(args: argparse.Namespace, env: Mapping[str, str]) -> int:
+def run(args: argparse.Namespace, env: Mapping[str, str], store: Store | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     try:
         dims = load_dims(env)
+        if args.tool == "inspect":
+            from .runner import serve
+
+            store = store or make_store(load_worker_minio(env))
+            handled = serve(env, store, idle_timeout=args.idle)
+            print(f"처리한 메시지 {handled}개")
+            return 0
         if args.command == "photo":
             import cv2
 
@@ -102,4 +131,4 @@ def run(args: argparse.Namespace, env: Mapping[str, str]) -> int:
         return 2
 
 
-__all__ = ["DEVICE_MODELS", "add_parsers", "run"]
+__all__ = ["DEVICE_MODELS", "add_parsers", "load_worker_minio", "run"]
