@@ -40,7 +40,7 @@ TRACE는 노트북 렌탈의 출고·수령·반납 세 시점에 외관과 내�
 - 서버: Java 21, Spring Boot 3.5.7, Maven, Spring Data JPA, Flyway(서버마다 자기 스키마 마이그레이션), Spring Security 리소스 서버, Spring AMQP. gateway는 Spring Cloud Gateway 2025.0.3(WebFlux).
 - 화면: React 18, TypeScript, Vite, React Three Fiber, Vitest. API 타입은 contracts의 OpenAPI로 만든다.
 - 파이썬: 3.12(부스 Jetson은 JetPack 6의 3.10), pyproject, ruff, pytest.
-- JSON 필드는 camelCase, 시각은 ISO 8601 + 오프셋, ID는 UUIDv7, REST 오류는 RFC 9457 Problem Details, 메시지마다 `schemaVersion`.
+- JSON 필드는 camelCase, 시각은 ISO 8601 + 오프셋, ID는 밖에 보이는 publicId(NanoID 21자)이고 DB 기본 키는 bigint `id`로 밖에 내보내지 않는다, REST 오류는 RFC 9457 Problem Details, 메시지마다 `schemaVersion`.
 - 배포는 GitOps다. 이미지를 GHCR에 올리고 gitops 레포의 태그를 바꾸면 학교 Argo CD가 반영한다. 클러스터에 kubectl로 직접 배포하지 않는다.
 - DB 마이그레이션은 이전 버전 코드에서도 동작하게 나눈다(컬럼 추가 먼저, 삭제는 다음 배포). 자동 롤백은 코드만 되돌리기 때문이다.
 
@@ -56,4 +56,4 @@ TRACE는 노트북 렌탈의 출고·수령·반납 세 시점에 외관과 내�
 - 이 헌법은 다른 모든 관례보다 앞선다. 계획(`/speckit-plan`)의 헌법 점검에서 어긋나는 항목은 이유를 적고 사람의 승인을 받는다.
 - 헌법을 바꾸려면 GAKDO/docs에 PR을 내고, 머지되면 모든 레포의 `.specify/memory/constitution.md`를 같은 내용으로 바꾼다. 버전은 원칙 삭제·의미 변경이면 주 버전, 원칙 추가면 부 버전, 문구 수정이면 수 버전을 올린다.
 
-**Version**: 1.0.0 | **Ratified**: 2026-11-01 | **Last Amended**: 2026-11-01
+**Version**: 1.1.0 | **Ratified**: 2026-11-01 | **Last Amended**: 2026-11-02
