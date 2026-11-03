@@ -24,6 +24,7 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     b = ds_sub.add_parser("build", help="제출된 주석으로 새 버전을 만든다")
     b.add_argument("--version", help="v001 형식. 없으면 다음 번호")
     b.add_argument("--allow-dirty", action="store_true", help="커밋하지 않은 변경이 있어도 만든다(manifest에 표시)")
+    b.add_argument("--allow-no-val", action="store_true", help="val 기기가 없어도 만든다(학습은 못 함)")
     ds_sub.add_parser("list", help="버전 목록")
     dev = ds_sub.add_parser("device", help="기기 분할")
     dev_sub = dev.add_subparsers(dest="device_command", required=True)
@@ -101,7 +102,7 @@ def _run(args: argparse.Namespace, deps: Deps) -> int:
         print(f"{device.code} → {device.split}")
         return 0
     result = build(deps.store(), reg, load_minio(deps.env), deps.commit(),
-                   version=args.version, allow_dirty=args.allow_dirty)
+                   version=args.version, allow_dirty=args.allow_dirty, require_val=not args.allow_no_val)
     imgs = result.counts["images"]
     print(f"{result.version} 만듦: train {imgs['train']} · val {imgs['val']} · test {imgs['test']}"
           f" · manifest {result.manifest_key}")
