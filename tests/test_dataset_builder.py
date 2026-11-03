@@ -227,3 +227,15 @@ def test_명령줄_설정이_빠지면_이름만_알리고_2로_끝난다(capsys
     deps = Deps({}, registry=lambda: w.registry, store=lambda: w.store, commit=lambda: CLEAN)
     assert main(["dataset", "build"], deps=deps) == 2
     assert "MINIO_ENDPOINT" in capsys.readouterr().err
+
+
+def test_명령줄_build는_val_기기가_없으면_아무것도_쓰지_않고_멈춘다(capsys):
+    w = World()
+    w.labeled("REG01", 2)
+    deps = Deps({"MINIO_ENDPOINT": "http://minio.test", "MINIO_ACCESS_KEY": "ak", "MINIO_SECRET_KEY": "sk"},
+                registry=lambda: w.registry, store=lambda: w.store, commit=lambda: CLEAN)
+    assert main(["dataset", "device", "add", "REG01", "--split", "TRAIN", "--model", "MacBook Air"], deps=deps) == 0
+    assert main(["dataset", "build"], deps=deps) == 1
+    assert "val 사진이 없음" in capsys.readouterr().err
+    assert w.s3.keys("trace-datasets") == [] and w.registry.versions() == []
+    assert main(["dataset", "build", "--allow-no-val"], deps=deps) == 0

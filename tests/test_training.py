@@ -57,7 +57,7 @@ def test_v001로_학습하면_trace_models에_가중치_ONNX_지표_run_json이_
     result = _train(w, tmp_path)
     assert result.prefix == "v001/20261106T010000Z/"
     names = {k.rsplit("/", 1)[-1] for k in w.s3.keys("trace-models")}
-    assert names == {"best.pt", "best.onnx", "metrics.json", "run.json"}
+    assert names == {"best.pt", "best.onnx", "metrics.json", "run.json", "model.json"}
     run = json.loads(w.s3.objects[("trace-models", result.prefix + "run.json")][0])
     manifest_sha = w.registry.versions()[0].counts["manifestSha256"]
     assert (run["datasetVersion"], run["manifestSha256"], run["builderCommit"]) == ("v001", manifest_sha, "c" * 40)
@@ -81,7 +81,7 @@ def test_학습이_끝나면_models_list에서_모델마다_데이터셋_버전�
     w = built()
     deps = Deps({"MINIO_ENDPOINT": "http://minio.test", "MINIO_ACCESS_KEY": "ak", "MINIO_SECRET_KEY": "sk"},
                 registry=lambda: w.registry, store=lambda: w.store, trainer=FakeTrainer())
-    assert main(["train", "v001", "--epochs", "1", "--cache", str(tmp_path)], deps=deps) == 0
+    assert main(["train", "v001", "--epochs", "1", "--tile", "0", "--cache", str(tmp_path)], deps=deps) == 0
     assert main(["models", "list"], deps=deps) == 0
     out = capsys.readouterr().out
     assert "v001  v001/" in out and "best.pt" in out and "mask mAP50 0.35" in out

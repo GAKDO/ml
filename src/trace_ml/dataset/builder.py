@@ -100,7 +100,8 @@ def _counts(images: list[LabeledImage], table: dict[str, str]) -> dict:
 
 
 def build(store: Store, registry: Registry, settings: MinioSettings, commit: Commit, *,
-          version: str | None = None, allow_dirty: bool = False, now: datetime | None = None) -> BuildResult:
+          version: str | None = None, allow_dirty: bool = False, now: datetime | None = None,
+          require_val: bool = False) -> BuildResult:
     if commit.dirty and not allow_dirty:
         raise BuildError("커밋하지 않은 변경이 있음: 커밋한 뒤 빌드하거나 --allow-dirty")
     images = collect(_load_exports(store, settings.labels_bucket))
@@ -122,6 +123,9 @@ def build(store: Store, registry: Registry, settings: MinioSettings, commit: Com
     placed = [c for codes in counts["devices"].values() for c in codes]
     if len(placed) != len(set(placed)):
         raise BuildError("한 기기가 두 분할에 있음")
+    # 버전에 쓰인 기기는 분할을 바꿀 수 없으므로, val 없는 버전은 쓰기 전에 막는다(학습은 val이 있어야 돈다)
+    if require_val and not counts["images"]["val"]:
+        raise BuildError("val 사진이 없음: 먼저 trace-ml dataset device add <기기> --split VAL 로 기기 하나를 VAL로 두세요")
 
     # 먼저 모든 사진을 받아 해시를 낸다. 여기까지는 아무것도 쓰지 않는다
     items, files = [], []
