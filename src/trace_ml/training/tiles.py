@@ -45,6 +45,8 @@ def _starts(length: int, size: int, step: int) -> list[int]:
 
 def tiles(width: int, height: int, size: int = 640, overlap: float = 0.2) -> list[Tile]:
     """booth `detect/tiling.tiles`와 같은 규칙. 바꾸면 부스 쪽도 같이 바꾼다."""
+    if size <= 0:
+        raise ValueError("타일 크기는 양수")
     if not 0 <= overlap < 1:
         raise ValueError("overlap은 0 이상 1 미만")
     step = max(1, int(size * (1 - overlap)))
@@ -140,6 +142,8 @@ def tile_dataset(src: Path, dest: Path, names: dict[int, str], *, size: int = 64
     train은 흠집 타일을 모두 두고, 흠집 없는 타일은 흠집 타일 수 × background_ratio만큼만 고정 순서로 고른다
     (빈 타일이 대부분이라 그대로 두면 모델이 '없음'만 배운다). val·test는 오탐도 재도록 모든 타일을 둔다.
     """
+    if size <= 0 or background_ratio < 0:
+        raise ValueError("타일 크기는 양수, background_ratio는 0 이상")
     if dest.exists():  # 비율을 바꿔 다시 자를 때 옛 타일이 섞이지 않게 (받은 원본은 src에 그대로 있다)
         shutil.rmtree(dest)
     counts: dict[str, dict[str, int]] = {}
@@ -147,8 +151,13 @@ def tile_dataset(src: Path, dest: Path, names: dict[int, str], *, size: int = 64
         img_dir, lbl_dir = dest / "images" / split, dest / "labels" / split
         img_dir.mkdir(parents=True, exist_ok=True)
         lbl_dir.mkdir(parents=True, exist_ok=True)
-        defect: list[tuple[str, np.ndarray, list[str]]] = []
-        background: list[tuple[str, np.ndarray]] = []
+
+        def write(name: str, crop: np.ndarray, lines: list[str], img_dir=img_dir, lbl_dir=lbl_dir) -> None:
+            _write_image(img_dir / f"{name}.jpg", crop)
+            (lbl_dir / f"{name}.txt").write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
+
+        # 사진 한 장씩 읽고 바로 쓴다. train 빈 타일은 이름·위치만 모았다가 고른 뒤 다시 읽는다(메모리에 사진을 쌓지 않음)
+        n_defect, later, n_background = 0, [], 0
         for photo in sorted((src / "images" / split).glob("*.jpg")):
             label_path = src / "labels" / split / f"{photo.stem}.txt"
             polys = _read_labels(label_path) if label_path.exists() else []
@@ -156,23 +165,27 @@ def tile_dataset(src: Path, dest: Path, names: dict[int, str], *, size: int = 64
             height, width = image.shape[:2]
             for t in tiles(width, height, size, overlap):
                 name = f"{photo.stem}_x{t.x}_y{t.y}"
-                crop = image[t.y:t.y + t.h, t.x:t.x + t.w]
                 lines = tile_label(polys, width, height, t, min_area)
                 if lines:
-                    defect.append((name, crop, lines))
+                    write(name, image[t.y:t.y + t.h, t.x:t.x + t.w], lines)
+                    n_defect += 1
+                elif split == "train":
+                    later.append((name, photo, t))
                 else:
-                    background.append((name, crop))
-        if split == "train" and defect:
-            limit = math.ceil(len(defect) * background_ratio)
-            background = sorted(background, key=lambda b: _keep(b[0]))[:limit]
-        for name, crop, lines in defect:
-            _write_image(img_dir / f"{name}.jpg", crop)
-            (lbl_dir / f"{name}.txt").write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
-        for name, crop in background:
-            _write_image(img_dir / f"{name}.jpg", crop)
-            (lbl_dir / f"{name}.txt").write_text("", encoding="utf-8")
-        counts[split] = {"tiles": len(defect) + len(background), "defect": len(defect),
-                         "background": len(background)}
+                    write(name, image[t.y:t.y + t.h, t.x:t.x + t.w], [])
+                    n_background += 1
+        if later:
+            if n_defect:
+                later = sorted(later, key=lambda b: _keep(b[0]))[:math.ceil(n_defect * background_ratio)]
+            by_photo: dict[Path, list[tuple[str, Tile]]] = {}
+            for name, photo, t in later:
+                by_photo.setdefault(photo, []).append((name, t))
+            for photo, picked in sorted(by_photo.items()):
+                image = _read_image(photo)
+                for name, t in picked:
+                    write(name, image[t.y:t.y + t.h, t.x:t.x + t.w], [])
+            n_background += len(later)
+        counts[split] = {"tiles": n_defect + n_background, "defect": n_defect, "background": n_background}
     data = {"path": str(dest.resolve()), "train": "images/train", "val": "images/val", "test": "images/test",
             "names": names}
     data_yaml = dest / "data.yaml"

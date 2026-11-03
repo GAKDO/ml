@@ -36,6 +36,9 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
 
 
 def run(args: argparse.Namespace, deps: Deps) -> int:
+    if args.tool == "train" and (args.tile < 0 or args.background_ratio < 0 or not 0 <= args.overlap < 1):
+        print("설정 오류: --tile·--background-ratio는 0 이상, --overlap은 0 이상 1 미만", file=sys.stderr)
+        return 2
     try:
         reg = deps.registry()
         if args.tool == "models":

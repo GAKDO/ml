@@ -98,3 +98,16 @@ def test_val_사진이_없으면_학습하지_않는다(tmp_path):
     with pytest.raises(RegistryError, match="val"):
         _train(w, tmp_path, trainer)
     assert trainer.specs == []
+
+
+def test_타일_크기나_빈_타일_비율이_음수면_자르지_않는다(tmp_path, capsys):
+    with pytest.raises(ValueError):
+        tiles(1920, 1080, size=0)
+    w = _world([(10, 10), (20, 10), (20, 20), (10, 20)])
+    with pytest.raises(ValueError):
+        _train(w, tmp_path, FakeTrainer(), background_ratio=-1)
+    from trace_ml.__main__ import main
+    from trace_ml.dataset.cli import Deps
+
+    deps = Deps({}, registry=lambda: w.registry, store=lambda: w.store, trainer=FakeTrainer())
+    assert main(["train", "v001", "--tile", "-1"], deps=deps) == 2

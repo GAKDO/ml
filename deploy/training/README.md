@@ -31,6 +31,8 @@ DB_USERNAME=trace_ml
 DB_PASSWORD=
 ```
 
+`MINIO_ENDPOINT`는 TLS 없는 평문 HTTP입니다(학교 MinIO S3 API가 HTTP만 엽니다). 요청은 SigV4 서명이라 secret key는 가지 않지만 사진·라벨·모델 내용은 암호화되지 않으므로, 집 유선망처럼 믿을 수 있는 네트워크에서만 쓰고 공용 Wi-Fi에서는 쓰지 않습니다. 키는 최소 권한 trace-trainer만 씁니다. 학교가 HTTPS S3 주소를 열면 이 값만 바꿉니다.
+
 새 PowerShell 창마다:
 
 ```powershell
