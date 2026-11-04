@@ -86,3 +86,20 @@ def test_리허설_명령은_MinIO_DB_환경_변수_없이_돈다(tmp_path: Path
 def test_리허설_설정이_잘못되면_학습하지_않는다(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         rehearse(tmp_path, photos=9, trainer=FakeTrainer())
+
+
+def test_리허설은_자기가_만들지_않은_폴더를_지우지_않는다(tmp_path: Path) -> None:
+    other = tmp_path / "cache"
+    (other / "model").mkdir(parents=True)
+    (other / "model" / "best.pt").write_bytes(b"real")
+    with pytest.raises(ValueError):
+        rehearse(other, photos=10, width=640, height=360, trainer=FakeTrainer(), onnx_checker=lambda *a: "통과")
+    assert (other / "model" / "best.pt").read_bytes() == b"real"
+
+
+def test_리허설_폴더는_다시_돌리면_새로_만든다(tmp_path: Path) -> None:
+    out = tmp_path / "r"
+    kw: dict = {"photos": 10, "width": 640, "height": 360, "onnx_checker": lambda *a: "통과"}
+    rehearse(out, trainer=FakeTrainer(), **kw)
+    rehearse(out, trainer=FakeTrainer(), **kw)  # runs/rehearsal이 남아 있어도 막히지 않는다
+    assert (out / "model" / "model.json").exists()

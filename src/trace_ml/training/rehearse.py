@@ -25,6 +25,7 @@ from ..codes import DEFECT_CLASSES
 from .tiles import tile_dataset
 from .yolo import TrainOutput, TrainSpec, train_yolo
 
+MARKER = ".trace-rehearsal"
 SCRATCH, DENT = DEFECT_CLASSES.index("scratch"), DEFECT_CLASSES.index("dent")
 
 
@@ -171,9 +172,17 @@ def rehearse(out_dir: Path, *, photos: int = 40, epochs: int = 30, base_weights:
         raise ValueError("photos는 10 이상, epochs는 1 이상, tile은 양수")
     out_dir = out_dir.resolve()  # ultralytics는 상대 경로 project를 runs/segment 아래로 옮긴다
     raw = out_dir / "raw"
-    for old in (raw, out_dir / "model"):  # 다시 돌릴 때 옛 합성 사진·결과가 섞이지 않게
+    marker = out_dir / MARKER
+    owned = [raw, out_dir / "model", out_dir / f"tile{tile}", out_dir / "runs"]
+    # 리허설이 만든 폴더(표지 파일 있음)만 지운다. 다른 학습·데이터 폴더를 --out으로 잘못 주면 지우지 않고 멈춘다
+    if not marker.exists() and out_dir.exists() and any(out_dir.iterdir()):
+        raise ValueError(f"{out_dir}는 비어 있지 않은 다른 폴더임: 리허설 전용 빈 폴더를 --out으로 주세요")
+    for old in owned:  # 다시 돌릴 때 옛 합성 사진·결과가 섞이지 않게
         if old.exists():
             shutil.rmtree(old)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    marker.write_text("trace-ml rehearse 결과 폴더. 다시 돌리면 raw·model·tile·runs를 지우고 새로 만든다\n",
+                      encoding="utf-8")
     write_raw_dataset(raw, photos, width, height)
     names = dict(enumerate(DEFECT_CLASSES))
     tiled = tile_dataset(raw, out_dir / f"tile{tile}", names, size=tile, overlap=overlap)
