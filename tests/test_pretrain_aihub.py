@@ -90,3 +90,21 @@ def test_scan_명령은_map_초안을_쓰고_build_명령은_640_타일까지_�
     info = json.loads((out / "build.json").read_text(encoding="utf-8"))
     assert info["tile"] == 640 and info["counts"]["train"]["defect"] > 0
     assert (out / "tile640" / "data.yaml").exists()
+
+
+def test_같은_out에_다시_빌드하면_지우지_않고_멈춘다(tmp_path: Path) -> None:
+    from trace_ml.pretrain.build import build
+
+    dest = tmp_path / "raw"
+    (dest / "images" / "train").mkdir(parents=True)
+    (dest / "images" / "train" / "old.jpg").write_bytes(b"x")
+    with pytest.raises(ValueError, match="이전 빌드 결과"):
+        build([], {}, dest)
+    assert (dest / "images" / "train" / "old.jpg").exists()
+
+
+def test_빈_사진_선별은_분할_해시와_독립이라_train에도_들어간다() -> None:
+    from trace_ml.pretrain.build import _unit, split_of
+
+    kept = [Path(f"p{i}.jpg") for i in range(2000) if _unit(Path(f"p{i}.jpg"), "empty") < 0.1]
+    assert any(split_of(p, 0.1, 0.05) == "train" for p in kept)

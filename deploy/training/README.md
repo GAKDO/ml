@@ -51,7 +51,6 @@ trace-ml labelstudio setup      # 프로젝트·trace-raw 소스·trace-labels �
 trace-ml dataset device list    # 기기 분할 확인(실사진 찍을 기기 코드가 정해지면 4번)
 ```
 
-<<<<<<< HEAD
 ## AI Hub 데이터로 사전 학습 (최고 성능)
 
 부스 사진만으로 처음부터 배우면 데이터가 적어 한계가 있습니다. 먼저 AI Hub 표면 결함 데이터(선박 도장 품질, LNG 탱크 품질 검사)로 "흠집 보는 눈"을 키운 뒤, 그 가중치를 부스 학습의 출발점(`--base`)으로 씁니다. MinIO·DB는 쓰지 않습니다.
@@ -81,7 +80,7 @@ trace-ml dataset device list    # 기기 분할 확인(실사진 찍을 기기 �
 
    다시 돌릴 때는 `--name pretrain2`처럼 이름을 바꿉니다.
 
-5. 부스 사진 학습(6번)에 그 가중치를 씁니다.
+5. 부스 사진 학습(6번)에 그 가중치를 씁니다. `--base`에는 4번이 마지막에 출력한 `best.pt` 경로를 그대로 붙여 넣습니다(아래는 `--name`을 안 바꿨을 때).
 
    ```powershell
    trace-ml train v001 --base D:\trace\pretrain\aihub\runs\pretrain\weights\best.pt --epochs 150 --cache D:\trace\cache
@@ -96,8 +95,6 @@ trace-ml rehearse --out D:\trace\rehearsal-m --base yolo11m-seg.pt --epochs 3
 trace-ml rehearse --out D:\trace\rehearsal-l --base yolo11l-seg.pt --epochs 3
 ```
 
-=======
->>>>>>> origin/claude/project-thread-o7ot01
 ## 0. 코드 받기 (PowerShell)
 
 ```powershell

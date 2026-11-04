@@ -73,9 +73,14 @@ def load_map(path: Path) -> dict[str, str | None]:
     return out
 
 
+def _unit(path: Path, salt: str = "") -> float:
+    """파일 이름 해시를 0~1로. salt가 다르면 서로 독립인 값."""
+    return int(hashlib.sha256((salt + path.name).encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
+
+
 def split_of(path: Path, val: float, test: float) -> str:
     """파일 이름 해시로 분할. 외장하드 드라이브 글자가 바뀌거나 폴더를 옮겨도 같은 사진은 같은 분할."""
-    h = int(hashlib.sha256(path.name.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
+    h = _unit(path)
     return "val" if h < val else "test" if h < val + test else "train"
 
 
@@ -90,6 +95,9 @@ def build(items: Iterable[Item], mapping: dict[str, str | None], dest: Path, *, 
     """dest/images|labels/<분할>/*.jpg|txt. 매핑된 흠집이 없는 사진은 keep_empty 비율만 둔다(오탐 학습용)."""
     import cv2
 
+    for sub in ("images", "labels"):  # 다시 빌드하면 옛 분할 사본이 남아 train·val이 섞이므로 지우지 않고 멈춘다
+        if (dest / sub).exists() and any(f.is_file() for f in (dest / sub).rglob("*")):
+            raise ValueError(f"{dest / sub}에 이전 빌드 결과가 있음: 다른 --out을 쓰거나 폴더를 직접 지운 뒤 다시 실행")
     report = BuildReport()
     for split in ("train", "val", "test"):
         (dest / "images" / split).mkdir(parents=True, exist_ok=True)
@@ -108,7 +116,7 @@ def build(items: Iterable[Item], mapping: dict[str, str | None], dest: Path, *, 
                 report.dropped_labels[s.label] += 1
             else:
                 kept.append((DEFECT_CLASSES.index(cls), s.points))
-        if not kept and split_of(it.image, keep_empty, 0) != "val":  # 빈 사진은 keep_empty 비율만
+        if not kept and _unit(it.image, "empty") >= keep_empty:  # 빈 사진은 keep_empty 비율만(분할 해시와 독립)
             report.skipped["흠집 없음(일부만 둠)"] += 1
             continue
         image = _read(it.image)

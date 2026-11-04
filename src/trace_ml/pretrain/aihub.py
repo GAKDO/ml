@@ -182,7 +182,12 @@ def read_items(roots: list[Path], index: dict[str, Path] | None = None) -> Itera
                 yield Item(None, source=path)
                 continue
             if is_coco(doc):
-                yield from read_coco(path, doc, index)
+                try:  # 형식이 깨진 COCO 하나 때문에 전체가 멈추지 않게
+                    coco_items = list(read_coco(path, doc, index))
+                except (AttributeError, TypeError, ValueError, KeyError):
+                    yield Item(None, source=path)
+                    continue
+                yield from coco_items
                 continue
             name = _image_name(doc)
             image = index.get(name) if name else None
