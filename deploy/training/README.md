@@ -12,7 +12,7 @@ MVP 범위: 부스 사진은 TOP·BOT 두 면, CAM1·CAM2. 클래스는 codes.ya
 cd D:\trace\ml
 git switch develop; git pull
 .\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev,train]" onnxruntime
+python -m pip install -e ".[dev,train]"
 trace-ml rehearse --out D:\trace\rehearsal --epochs 30     # 4070 Ti에서 몇 분
 ```
 
@@ -42,7 +42,10 @@ trace-booth bench --engine ~/trace-models/rehearsal/best.engine \
 
 ### 오늘 밤 같이 해 둘 것
 
+아래 두 명령은 Label Studio·MinIO·DB 환경 변수가 필요합니다. 같은 창에서 1번의 `ml.env` 불러오기를 먼저 실행합니다.
+
 ```powershell
+Get-Content D:\trace\ml.env | Where-Object { $_ -match '^[A-Z_]+=.' } | ForEach-Object { $n, $v = $_ -split '=', 2; Set-Item "env:$n" $v.Trim() }
 docker start label-studio; docker start trace-ml-pg
 trace-ml labelstudio setup      # 프로젝트·trace-raw 소스·trace-labels 타깃. 이미 있으면 그대로
 trace-ml dataset device list    # 기기 분할 확인(실사진 찍을 기기 코드가 정해지면 4번)

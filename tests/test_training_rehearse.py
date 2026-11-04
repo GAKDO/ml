@@ -44,10 +44,13 @@ def test_합성_사진의_라벨_폴리곤은_그린_흠집_위에_있고_흠집
 
 
 def test_합성_데이터셋은_train_val_test_모두에_사진이_있다(tmp_path: Path) -> None:
-    counts = write_raw_dataset(tmp_path, 10, 1280, 720)
-    assert counts == {"train": 7, "val": 2, "test": 1}
-    for split in counts:
-        assert len(list((tmp_path / "images" / split).glob("*.jpg"))) == counts[split]
+    for photos in (10, 12, 40):
+        counts = write_raw_dataset(tmp_path / str(photos), photos, 640, 360)
+        assert sum(counts.values()) == photos and counts["val"] >= 2 and counts["test"] >= 1
+    assert write_raw_dataset(tmp_path / "t", 10, 640, 360) == {"train": 7, "val": 2, "test": 1}
+    # val에는 흠집 사진과 깨끗한 사진이 모두 있다(부스 bench 샘플 두 장)
+    vals = [p.read_text(encoding="utf-8").strip() for p in (tmp_path / "t" / "labels" / "val").glob("*.txt")]
+    assert any(vals) and not all(vals)
 
 
 def test_리허설은_실제_학습과_같은_640_타일로_학습하고_부스용_testOnly_model_json을_남긴다(tmp_path: Path) -> None:
@@ -82,4 +85,4 @@ def test_리허설_명령은_MinIO_DB_환경_변수_없이_돈다(tmp_path: Path
 
 def test_리허설_설정이_잘못되면_학습하지_않는다(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
-        rehearse(tmp_path, photos=2, trainer=FakeTrainer())
+        rehearse(tmp_path, photos=9, trainer=FakeTrainer())

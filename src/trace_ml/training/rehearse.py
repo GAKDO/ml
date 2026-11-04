@@ -26,7 +26,6 @@ from .tiles import tile_dataset
 from .yolo import TrainOutput, TrainSpec, train_yolo
 
 SCRATCH, DENT = DEFECT_CLASSES.index("scratch"), DEFECT_CLASSES.index("dent")
-SPLIT_SHARE = (("train", 0.7), ("val", 0.2), ("test", 0.1))
 
 
 @dataclass(frozen=True)
@@ -118,15 +117,20 @@ def synth_photo(seed: int, width: int = 1920, height: int = 1080,
 def write_raw_dataset(dest: Path, photos: int, width: int = 1920, height: int = 1080,
                       seed: int = 7) -> dict[str, int]:
     """dest/images|labels/<분할> (dataset build가 받는 것과 같은 모양). 분할마다 흠집 없는 사진을 섞는다."""
+    # 합이 photos와 같게: val은 흠집·깨끗한 사진이 하나씩 있게 2장 이상, test 1장 이상, 나머지 train
+    val, test = max(2, round(photos * 0.2)), max(1, round(photos * 0.1))
+    sizes = {"train": photos - val - test, "val": val, "test": test}
+    if sizes["train"] < 1:
+        raise ValueError(f"사진 {photos}장으로는 train을 만들 수 없음")
     counts = {}
     n = 0
-    for split, share in SPLIT_SHARE:
-        k = max(1, round(photos * share))
+    for split, k in sizes.items():
         (dest / "images" / split).mkdir(parents=True, exist_ok=True)
         (dest / "labels" / split).mkdir(parents=True, exist_ok=True)
         for i in range(k):
-            # 분할마다 마지막 한 장은 흠집 없는 사진(오탐 확인용), 그 밖에도 다섯 장에 한 장
-            image, lines = synth_photo(seed + n, width, height, clean=n % 5 == 4 or (k > 1 and i == k - 1))
+            # 분할마다 첫 장은 흠집 사진, 마지막 한 장은 흠집 없는 사진(오탐 확인용), 그 사이도 다섯 장에 한 장은 깨끗하게
+            clean = k > 1 and (i == k - 1 or (i > 0 and n % 5 == 4))
+            image, lines = synth_photo(seed + n, width, height, clean=clean)
             stem = f"SYN{n:03d}_TOP_L1_CAM1"
             ok, buf = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 92])
             if not ok:
@@ -141,12 +145,12 @@ def write_raw_dataset(dest: Path, photos: int, width: int = 1920, height: int = 
 def check_onnx(onnx: Path, size: int, classes: int) -> str:
     """부스(booth `detect/yolo_seg.py`)가 기대하는 모양인지: 입력 1×3×size×size, 출력 (1,4+nc+32,N)·(1,32,size/4,size/4).
 
-    onnxruntime이 없으면 확인을 건너뛰고 그 사실을 돌려준다. 맞지 않으면 RuntimeError.
+    onnxruntime이 없거나 모양이 맞지 않으면 RuntimeError(확인 없이 통과로 보이지 않게).
     """
     try:
         import onnxruntime as ort
-    except ImportError:
-        return "건너뜀(onnxruntime 없음: pip install onnxruntime)"
+    except ImportError as exc:
+        raise RuntimeError('onnxruntime이 없어 ONNX를 확인하지 못함: python -m pip install -e ".[train]"') from exc
     session = ort.InferenceSession(str(onnx), providers=["CPUExecutionProvider"])
     inp = session.get_inputs()[0]
     if list(inp.shape) != [1, 3, size, size]:
@@ -163,8 +167,8 @@ def rehearse(out_dir: Path, *, photos: int = 40, epochs: int = 30, base_weights:
              trainer: Callable[[TrainSpec], TrainOutput] = train_yolo,
              onnx_checker: Callable[[Path, int, int], str] = check_onnx) -> Rehearsal:
     """합성 데이터로 실제 `trace-ml train`과 같은 타일·학습·내보내기 함수를 그대로 부른다."""
-    if photos < 5 or epochs < 1 or tile <= 0:
-        raise ValueError("photos는 5 이상, epochs는 1 이상, tile은 양수")
+    if photos < 10 or epochs < 1 or tile <= 0:
+        raise ValueError("photos는 10 이상, epochs는 1 이상, tile은 양수")
     out_dir = out_dir.resolve()  # ultralytics는 상대 경로 project를 runs/segment 아래로 옮긴다
     raw = out_dir / "raw"
     for old in (raw, out_dir / "model"):  # 다시 돌릴 때 옛 합성 사진·결과가 섞이지 않게
