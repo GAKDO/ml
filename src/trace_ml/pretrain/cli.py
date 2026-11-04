@@ -27,6 +27,8 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     b.add_argument("--max-images", type=int, default=0, help="0이면 전부")
     b.add_argument("--val", type=float, default=0.1)
     b.add_argument("--keep-empty", type=float, default=0.1, help="흠집 없는 사진을 남길 비율")
+    b.add_argument("--max-side", type=int, default=2048,
+                   help="긴 변을 이 크기로 줄인다(AI Hub 4032px → 부스 사진 배율에 가깝게, 타일·디스크 1/4). 0이면 원본")
     b.add_argument("--tile", type=int, default=640)
     b.add_argument("--overlap", type=float, default=0.2)
     b.add_argument("--background-ratio", type=float, default=1.0)
@@ -71,7 +73,7 @@ def _build(args: argparse.Namespace) -> int:
     mapping = load_map(args.map)
     raw = args.out / "raw"
     report = build(read_items(args.roots, index_images(args.roots)), mapping, raw, val=args.val,
-                   max_images=args.max_images, keep_empty=args.keep_empty)
+                   max_images=args.max_images, keep_empty=args.keep_empty, max_side=args.max_side)
     print(f"사진 {report.images} · 폴리곤 {dict(report.shapes)}")
     if report.dropped_labels:
         print(f"버린 라벨: {dict(report.dropped_labels.most_common(10))}")

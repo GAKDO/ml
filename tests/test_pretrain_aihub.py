@@ -108,3 +108,26 @@ def test_빈_사진_선별은_분할_해시와_독립이라_train에도_들어�
 
     kept = [Path(f"p{i}.jpg") for i in range(2000) if _unit(Path(f"p{i}.jpg"), "empty") < 0.1]
     assert any(split_of(p, 0.1, 0.05) == "train" for p in kept)
+
+
+def test_선박_도장_COCO_JSON_평평한_segmentation을_읽고_긴_변을_줄인다(tmp_path: Path) -> None:
+    lbl, img, out = tmp_path / "lbl", tmp_path / "img", tmp_path / "out"
+    lbl.mkdir()
+    img.mkdir()
+    doc = {"images": [{"id": 1, "file_name": "302_19_a.jpg", "width": 4032, "height": 3024}],
+           "categories": [{"id": 302, "name": "스크래치"}],
+           "annotations": [{"id": 1, "image_id": 1, "category_id": 302, "iscrowd": 0,
+                            "segmentation": [257.5, 1300.9, 844.9, 1380.4, 4031.9, 1239.6, 4031.9, 1177.3]}]}
+    (lbl / "302_19_a.json").write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    cv2.imwrite(str(img / "302_19_a.jpg"), np.full((3024, 4032, 3), 128, np.uint8))
+    report = build(read_items([lbl, img]), {"스크래치": "scratch"}, out, val=0, test=0, max_side=2048)
+    assert report.shapes["scratch"] == 1
+    saved = next((out / "images" / "train").glob("*.jpg"))
+    assert cv2.imread(str(saved)).shape[:2] == (1536, 2048)
+    xs = [float(v) for v in next((out / "labels" / "train").glob("*.txt")).read_text().split()[1::2]]
+    assert max(xs) == pytest.approx(1.0, abs=1e-4)
+
+
+def test_긴_변_제한이_음수면_빌드를_시작하지_않는다(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="max_side"):
+        build([], {}, tmp_path / "out", max_side=-1)

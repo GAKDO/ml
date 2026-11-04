@@ -58,19 +58,35 @@ trace-ml dataset device list    # 기기 분할 확인(실사진 찍을 기기 �
 1. 외장하드(E:)에 받은 AI Hub 폴더에서 라벨 이름을 확인하고 클래스 표 초안을 만듭니다.
 
    ```powershell
-   trace-ml pretrain scan E:\aihub\선박도장 E:\aihub\LNG탱크 --write-map D:\trace\pretrain\map.yaml
+   trace-ml pretrain scan E:\선박도장품질데이터 --write-map D:\trace\pretrain\map.yaml
    ```
 
    `폴리곤 라벨을 찾지 못함`이 나오면 라벨 JSON 하나를 Claude에게 보여 주세요(변환기를 맞춥니다).
 
 2. `map.yaml`을 엽니다. 라벨마다 `scratch`(긁힘)·`dent`(찍힘·변형)·`crack`(균열)·`stain`(오염) 중 하나를 적고, 노트북에 없는 결함(흘러내림, 기포 등)은 `null`로 둡니다.
+
+   선박 도장(데이터셋 71447)은 사진마다 COCO 형식 JSON 하나이고 사진은 4032×3024입니다. 처음 표는 이렇게 둡니다(정상 사진은 라벨이 없어 `--keep-empty` 비율만 흠집 없는 사진으로 들어갑니다). 공개 데이터에 찍힘(dent)이 없어서, 노트북 모서리 찍힘처럼 도장이 벗겨진 모양인 `도막떨어짐`·`도막분리`를 `dent`로 씁니다. 찍힘을 부스 사진으로만 배우게 하려면 두 줄을 `null`로 바꾸고, 그 사진(`도막떨어짐`·`도막분리` zip)은 받지 않습니다. `null`로 바뀐 흠집만 있는 사진은 `--keep-empty` 비율(기본 0.1)만큼 흠집 없는 사진으로 들어가고, 다른 흠집도 있는 사진은 `null` 줄만 빠진 채 들어가기 때문입니다.
+
+   ```yaml
+   "스크래치": scratch
+   "균열": crack
+   "도막떨어짐": dent
+   "도막분리": dent
+   "이물질포함": stain
+   "워터스포팅": stain
+   "용접손상": null
+   "흐름": null
+   "핀홀": null
+   "부풀음": null
+   "정상": null
+   ```
 3. 데이터셋을 만듭니다. 외장하드에서 읽어 내장 SSD(D:)에 jpg와 640 타일로 씁니다. 외장 HDD에서 바로 학습하면 읽기가 느려 GPU가 놉니다.
 
    ```powershell
-   trace-ml pretrain build E:\aihub\선박도장 E:\aihub\LNG탱크 --map D:\trace\pretrain\map.yaml --out D:\trace\pretrain\aihub
+   trace-ml pretrain build E:\선박도장품질데이터 --map D:\trace\pretrain\map.yaml --out D:\trace\pretrain\aihub
    ```
 
-   D: 여유 공간이 모자라면 `--max-images 30000`처럼 줄입니다. 사진과 같은 이름 해시로 분할하므로 다시 만들어도 같은 사진은 같은 분할에 들어갑니다.
+   AI Hub 사진은 4032px라 긴 변을 2048px로 줄여서 씁니다(`--max-side`, 부스 사진 배율에 가깝고 타일·디스크가 1/4). D: 여유 공간이 모자라면 `--max-images 30000`처럼 줄입니다. 이미 만든 `--out`에는 다시 쓰지 않으니(옛 분할이 섞이지 않게) 새 `--out`을 주거나 그 안의 `raw` 폴더를 지운 뒤 다시 실행합니다. 사진과 같은 이름 해시로 분할하므로 다시 만들어도 같은 사진은 같은 분할에 들어갑니다.
 
 4. 사전 학습을 돌립니다. 기본 모델은 `yolo11m-seg.pt`, 기본 학습량은 100 epoch입니다. val이 20 epoch 동안 나아지지 않으면 일찍 멈춥니다. 데이터가 크면 하루 넘게 걸릴 수 있으니 밤에 돌립니다.
 
