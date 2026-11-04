@@ -91,7 +91,7 @@ def _read(path: Path) -> np.ndarray | None:
 
 
 def build(items: Iterable[Item], mapping: dict[str, str | None], dest: Path, *, val: float = 0.1,
-          test: float = 0.05, max_images: int = 0, keep_empty: float = 0.1) -> BuildReport:
+          test: float = 0.05, max_images: int = 0, keep_empty: float = 0.1, max_side: int = 0) -> BuildReport:
     """dest/images|labels/<분할>/*.jpg|txt. 매핑된 흠집이 없는 사진은 keep_empty 비율만 둔다(오탐 학습용)."""
     import cv2
 
@@ -131,6 +131,9 @@ def build(items: Iterable[Item], mapping: dict[str, str | None], dest: Path, *, 
             coords = [(min(max(x * sx / w, 0.0), 1.0), min(max(y * sy / h, 0.0), 1.0)) for x, y in pts]
             lines.append(f"{cls} " + " ".join(f"{x:.6f} {y:.6f}" for x, y in coords))
             report.shapes[DEFECT_CLASSES[cls]] += 1
+        if max_side and max(h, w) > max_side:  # 라벨은 0~1 비율이라 사진만 줄이면 된다
+            r = max_side / max(h, w)
+            image = cv2.resize(image, (round(w * r), round(h * r)), interpolation=cv2.INTER_AREA)
         split = split_of(it.image, val, test)
         stem = hashlib.sha256(str(it.image).encode()).hexdigest()[:16]  # 데이터마다 같은 파일 이름이 있어도 안 겹치게
         ok, buf = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 95])
