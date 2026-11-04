@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -33,6 +34,30 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     t.add_argument("--cache", type=Path, default=DEFAULT_CACHE, help="받은 데이터셋·학습 폴더")
     m = sub.add_parser("models", help="학습 기록")
     m.add_argument("command", choices=["list"])
+    r = sub.add_parser("rehearse", help="사진 없이 합성 사진으로 타일→학습→ONNX→model.json 끝까지 시험(로컬만)")
+    r.add_argument("--out", type=Path, default=DEFAULT_CACHE / "rehearsal", help="결과 폴더(model/에 best.onnx·model.json)")
+    r.add_argument("--photos", type=int, default=40, help="합성 사진 수(1920×1080, 70/20/10 분할)")
+    r.add_argument("--epochs", type=int, default=30)
+    r.add_argument("--base", default="yolo11s-seg.pt", help="기본 가중치(실제 학습과 같게)")
+    r.add_argument("--batch", type=int, default=-1, help="-1이면 GPU 메모리에 맞춰 자동. CPU면 8 정도")
+
+
+def run_rehearse(args: argparse.Namespace, rehearse_fn=None) -> int:
+    """MinIO·DB 없이 돈다. 실패하면 어느 단계인지 보여 준다."""
+    from .rehearse import rehearse
+
+    fn = rehearse_fn or rehearse
+    try:
+        result = fn(args.out, photos=args.photos, epochs=args.epochs, base_weights=args.base, batch=args.batch)
+    except (RuntimeError, ValueError, OSError) as exc:
+        print(f"리허설 실패: {exc}", file=sys.stderr)
+        return 1
+    mask = result.metrics.get("val", {}).get("mask", {})
+    print(f"타일: {json.dumps(result.counts, ensure_ascii=False)}")
+    print(f"val mask mAP50 {mask.get('map50', '-')} (합성 사진이라 참고만)")
+    print(f"ONNX 부스 모양 확인: {result.onnx_check}")
+    print(f"Jetson으로 옮길 파일: {result.onnx}, {result.model_json} (testOnly: 서버에 안 올림)")
+    return 0
 
 
 def run(args: argparse.Namespace, deps: Deps) -> int:

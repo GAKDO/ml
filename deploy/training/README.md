@@ -4,6 +4,53 @@
 
 MVP 범위: 부스 사진은 TOP·BOT 두 면, CAM1·CAM2. 클래스는 codes.yaml 그대로 4개(scratch·dent·crack·stain)이고, MVP 라벨은 주로 scratch입니다.
 
+## 사진 없이 오늘 미리 하기 (리허설)
+
+실사진이 오기 전에 `합성 사진 → 640 타일 → 학습 → ONNX → model.json → Jetson 엔진 → 탐지 시간`을 한 번 끝까지 돌립니다. 실사진이 들어오면 데이터만 바뀌고 나머지 배선은 이미 확인된 상태가 됩니다. MinIO·PostgreSQL·Label Studio를 쓰지 않고, 결과는 로컬 폴더에만 남습니다(trace-models에 올리지 않음).
+
+```powershell
+cd D:\trace\ml
+git switch develop; git pull
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev,train]"
+trace-ml rehearse --out D:\trace\rehearsal --epochs 30     # 4070 Ti에서 몇 분
+```
+
+끝에 이렇게 나오면 통과입니다(숫자는 다를 수 있음).
+
+```text
+ONNX 부스 모양 확인: 통과(입력 [1, 3, 640, 640], 출력 [1, 40, 8400]·[1, 32, 160, 160])
+Jetson으로 옮길 파일: D:\trace\rehearsal\model\best.onnx, D:\trace\rehearsal\model\model.json
+```
+
+- 합성 사진(1920×1080, 어두운 바닥 위 은색 판에 긁힘·찍힘)이라 mAP는 참고만 합니다. 0이 아니면 학습이 돌았다는 뜻입니다.
+- `model.json`은 `testOnly: true`입니다. 부스가 이 모델로 찍은 탐지는 서버에 올리지 않습니다.
+- `D:\trace\rehearsal\model\`에 `best.onnx`·`best.pt`·`model.json`·`metrics.json`·`sample_defect.jpg`·`sample_clean.jpg`가 생깁니다.
+
+### Jetson(jetson2)에서 엔진 빌드·속도 재기
+
+`model\` 폴더를 jetson2의 `~/rehearsal/`로 옮깁니다(scp 또는 USB). 그다음 jetson2에서:
+
+```bash
+export PATH="$HOME/trace-venv/bin:$PATH"          # 부스 앱 가상환경(booth capture/README.md)
+trace-booth build-engine --onnx ~/rehearsal/best.onnx --out ~/trace-models/rehearsal   # FP16, 몇 분
+trace-booth bench --engine ~/trace-models/rehearsal/best.engine \
+  --images ~/rehearsal/sample_defect.jpg ~/rehearsal/sample_clean.jpg ~/rehearsal/sample_defect.jpg ~/rehearsal/sample_clean.jpg
+```
+
+`bench`가 `sample_defect`에서 흠집을 찾고 `→ OK`(목표 15초 안)를 내면 Jetson 쪽 배선도 끝입니다. 실사진 v001이 나오면 `--onnx`만 바꿔 같은 두 줄을 다시 칩니다(모델마다 `--out` 폴더를 따로).
+
+### 오늘 밤 같이 해 둘 것
+
+아래 두 명령은 Label Studio·MinIO·DB 환경 변수가 필요합니다. 같은 창에서 1번의 `ml.env` 불러오기를 먼저 실행합니다.
+
+```powershell
+Get-Content D:\trace\ml.env | Where-Object { $_ -match '^[A-Z_]+=.' } | ForEach-Object { $n, $v = $_ -split '=', 2; Set-Item "env:$n" $v.Trim() }
+docker start label-studio; docker start trace-ml-pg
+trace-ml labelstudio setup      # 프로젝트·trace-raw 소스·trace-labels 타깃. 이미 있으면 그대로
+trace-ml dataset device list    # 기기 분할 확인(실사진 찍을 기기 코드가 정해지면 4번)
+```
+
 ## 0. 코드 받기 (PowerShell)
 
 ```powershell
