@@ -133,7 +133,7 @@ def build(items: Iterable[Item], mapping: dict[str, str | None], dest: Path, *, 
             report.shapes[DEFECT_CLASSES[cls]] += 1
         if max_side and max(h, w) > max_side:  # 라벨은 0~1 비율이라 사진만 줄이면 된다
             r = max_side / max(h, w)
-            image = cv2.resize(image, (round(w * r), round(h * r)), interpolation=cv2.INTER_AREA)
+            image = cv2.resize(image, (max(1, round(w * r)), max(1, round(h * r))), interpolation=cv2.INTER_AREA)
         split = split_of(it.image, val, test)
         stem = hashlib.sha256(str(it.image).encode()).hexdigest()[:16]  # 데이터마다 같은 파일 이름이 있어도 안 겹치게
         ok, buf = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 95])
