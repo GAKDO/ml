@@ -126,3 +126,8 @@ def test_선박_도장_COCO_JSON_평평한_segmentation을_읽고_긴_변을_줄
     assert cv2.imread(str(saved)).shape[:2] == (1536, 2048)
     xs = [float(v) for v in next((out / "labels" / "train").glob("*.txt")).read_text().split()[1::2]]
     assert max(xs) == pytest.approx(1.0, abs=1e-4)
+
+
+def test_긴_변_제한이_음수면_빌드를_시작하지_않는다(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="max_side"):
+        build([], {}, tmp_path / "out", max_side=-1)

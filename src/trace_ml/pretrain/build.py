@@ -95,6 +95,8 @@ def build(items: Iterable[Item], mapping: dict[str, str | None], dest: Path, *, 
     """dest/images|labels/<분할>/*.jpg|txt. 매핑된 흠집이 없는 사진은 keep_empty 비율만 둔다(오탐 학습용)."""
     import cv2
 
+    if max_side < 0:  # 음수면 축소 비율이 음수가 되어 사진이 1×1로 저장된다
+        raise ValueError("max_side는 0 이상이어야 함(0은 줄이지 않음)")
     for sub in ("images", "labels"):  # 다시 빌드하면 옛 분할 사본이 남아 train·val이 섞이므로 지우지 않고 멈춘다
         if (dest / sub).exists() and any(f.is_file() for f in (dest / sub).rglob("*")):
             raise ValueError(f"{dest / sub}에 이전 빌드 결과가 있음: 다른 --out을 쓰거나 폴더를 직접 지운 뒤 다시 실행")
