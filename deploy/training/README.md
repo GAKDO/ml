@@ -51,6 +51,50 @@ trace-ml labelstudio setup      # 프로젝트·trace-raw 소스·trace-labels �
 trace-ml dataset device list    # 기기 분할 확인(실사진 찍을 기기 코드가 정해지면 4번)
 ```
 
+## AI Hub 데이터로 사전 학습 (최고 성능)
+
+부스 사진만으로 처음부터 배우면 데이터가 적어 한계가 있습니다. 먼저 AI Hub 표면 결함 데이터(선박 도장 품질, LNG 탱크 품질 검사)로 "흠집 보는 눈"을 키운 뒤, 그 가중치를 부스 학습의 출발점(`--base`)으로 씁니다. MinIO·DB는 쓰지 않습니다.
+
+1. 외장하드(E:)에 받은 AI Hub 폴더에서 라벨 이름을 확인하고 클래스 표 초안을 만듭니다.
+
+   ```powershell
+   trace-ml pretrain scan E:\aihub\선박도장 E:\aihub\LNG탱크 --write-map D:\trace\pretrain\map.yaml
+   ```
+
+   `폴리곤 라벨을 찾지 못함`이 나오면 라벨 JSON 하나를 Claude에게 보여 주세요(변환기를 맞춥니다).
+
+2. `map.yaml`을 엽니다. 라벨마다 `scratch`(긁힘)·`dent`(찍힘·변형)·`crack`(균열)·`stain`(오염) 중 하나를 적고, 노트북에 없는 결함(흘러내림, 기포 등)은 `null`로 둡니다.
+3. 데이터셋을 만듭니다. 외장하드에서 읽어 내장 SSD(D:)에 jpg와 640 타일로 씁니다. 외장 HDD에서 바로 학습하면 읽기가 느려 GPU가 놉니다.
+
+   ```powershell
+   trace-ml pretrain build E:\aihub\선박도장 E:\aihub\LNG탱크 --map D:\trace\pretrain\map.yaml --out D:\trace\pretrain\aihub
+   ```
+
+   D: 여유 공간이 모자라면 `--max-images 30000`처럼 줄입니다. 사진과 같은 이름 해시로 분할하므로 다시 만들어도 같은 사진은 같은 분할에 들어갑니다.
+
+4. 사전 학습을 돌립니다. 기본 모델은 `yolo11m-seg.pt`, 기본 학습량은 100 epoch입니다. val이 20 epoch 동안 나아지지 않으면 일찍 멈춥니다. 데이터가 크면 하루 넘게 걸릴 수 있으니 밤에 돌립니다.
+
+   ```powershell
+   trace-ml pretrain train D:\trace\pretrain\aihub --model yolo11m-seg.pt --epochs 100
+   ```
+
+   다시 돌릴 때는 `--name pretrain2`처럼 이름을 바꿉니다.
+
+5. 부스 사진 학습(6번)에 그 가중치를 씁니다.
+
+   ```powershell
+   trace-ml train v001 --base D:\trace\pretrain\aihub\runs\pretrain\weights\best.pt --epochs 150 --cache D:\trace\cache
+   ```
+
+### 모델 크기 고르기 (jetson2 Orin Nano)
+
+부스 한 번 검사 = 사진 12장 × 타일 8개 = 타일 96개입니다. n·s·m·l 모두 메모리에는 들어가므로 속도로 고릅니다. 실측 전 추정은 FP16 기준 타일당 s 15~20ms, m 35~45ms, l 45~60ms입니다. 학습하지 않은 가중치도 속도는 같으므로, 아래처럼 리허설로 ONNX를 만들어 jetson2에서 `build-engine`·`bench`로 재고, 15초 안에 드는 가장 큰 모델을 고릅니다.
+
+```powershell
+trace-ml rehearse --out D:\trace\rehearsal-m --base yolo11m-seg.pt --epochs 3
+trace-ml rehearse --out D:\trace\rehearsal-l --base yolo11l-seg.pt --epochs 3
+```
+
 ## 0. 코드 받기 (PowerShell)
 
 ```powershell
