@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +17,7 @@ class TrainSpec:
     name: str
     has_test: bool
     batch: int = -1  # -1: GPU 메모리의 약 60%에 맞춰 자동(4070 Ti 12GB)
+    extra: dict[str, Any] = field(default_factory=dict)  # ultralytics train 인자 더하기(patience·cos_lr 등)
 
 
 @dataclass(frozen=True)
@@ -38,7 +39,7 @@ def train_yolo(spec: TrainSpec) -> TrainOutput:  # pragma: no cover - GPU·ultra
         raise RuntimeError('ultralytics가 없음: python -m pip install -e ".[train]"') from exc
     model = YOLO(spec.base_weights)
     model.train(data=str(spec.data_yaml), epochs=spec.epochs, imgsz=spec.imgsz,
-                batch=spec.batch, project=str(spec.workdir), name=spec.name, exist_ok=False)
+                batch=spec.batch, project=str(spec.workdir), name=spec.name, exist_ok=False, **spec.extra)
     best = YOLO(str(model.trainer.best))
     metrics: dict[str, Any] = {"epochs": spec.epochs, "imgsz": spec.imgsz,
                                "val": _seg(best.val(data=str(spec.data_yaml), split="val", imgsz=spec.imgsz))}

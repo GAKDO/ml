@@ -8,6 +8,7 @@
     trace-ml dataset build|list   제출된 주석으로 데이터셋 버전을 만든다(덮어쓰기 없음)
     trace-ml train v001           데이터셋 버전으로 학습, 가중치·ONNX·지표를 버전과 함께 기록
     trace-ml models list          모델 → 데이터셋 버전
+    trace-ml pretrain scan|build|train   AI Hub 등 공개 데이터로 사전 학습(부스 학습의 --base)
     trace-ml rehearse             사진 없이 합성 사진으로 학습→ONNX→model.json 끝까지 시험(로컬만)
     trace-ml inspect worker       inspect-worker(ML2): 정합·펼친 면·텍스처 → trace.inspect.completed
     trace-ml align photo|eval|pair    윤곽 4점 정합 확인·정합 오차(px·mm) 재기
@@ -26,6 +27,7 @@ from .inspect import cli as inspect_cli
 from .labelstudio import setup as ls_setup
 from .labelstudio.client import LabelStudio, LabelStudioError
 from .labelstudio.config import ConfigError, Settings, load_settings
+from .pretrain import cli as pretrain_cli
 from .training import cli as training_cli
 
 
@@ -70,12 +72,15 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
     dataset_cli.add_parsers(sub)
     training_cli.add_parsers(sub)
     inspect_cli.add_parsers(sub)
+    pretrain_cli.add_parsers(sub)
     args = parser.parse_args(args_list)
     environ = os.environ if env is None else env
     if args.tool == "labelstudio":
         return _labelstudio(args.command, environ)
     if args.tool in ("inspect", "align"):
         return inspect_cli.run(args, environ)
+    if args.tool == "pretrain":
+        return pretrain_cli.run(args)
     if args.tool == "rehearse":
         return training_cli.run_rehearse(args)
     deps = deps or dataset_cli.Deps(environ)
