@@ -164,4 +164,28 @@ def test_scan의_map_초안은_없는_폴더도_만들어_쓴다(tmp_path: Path)
     _aihub(tmp_path / "src", 2)
     draft = tmp_path / "새폴더" / "map.yaml"
     assert main(["pretrain", "scan", str(tmp_path / "src"), "--write-map", str(draft)], env={}) == 0
-    assert draft.exists()
+    assert "찍힘" in draft.read_text(encoding="utf-8")  # 상자로만 나온 라벨도 초안에 있다
+
+
+def test_폴리곤_칸이_비었으면_상자만_있는_객체로_센다(tmp_path: Path) -> None:
+    doc = {"images": [{"id": 1, "file_name": "c.jpg", "width": 800, "height": 600}],
+           "categories": [{"id": 1, "name": "스크래치"}],
+           "annotations": [{"id": 1, "image_id": 1, "category_id": 1, "bbox": [1, 2, 3, 4], "segmentation": [1, 2]}]}
+    (tmp_path / "c.json").write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    one = {"images": {"file_name": "d.jpg"}, "annotations": [{"class": "긁힘", "bbox": [1, 2, 3, 4], "polygon": []}]}
+    (tmp_path / "d.json").write_text(json.dumps(one, ensure_ascii=False), encoding="utf-8")
+    _photo(tmp_path / "c.jpg")
+    _photo(tmp_path / "d.jpg")
+    assert scan(read_items([tmp_path])).box_labels == {"스크래치": 1, "긁힘": 1}
+
+
+def test_대소문자만_다른_사진이_여럿이면_정확한_이름만_짝짓는다(tmp_path: Path) -> None:
+    from trace_ml.pretrain.aihub import index_images
+
+    _photo(tmp_path / "a" / "x.jpg")
+    _photo(tmp_path / "b" / "X.jpg")
+    _photo(tmp_path / "b" / "y.JPG")
+    index = index_images([tmp_path])
+    assert index.get("x.jpg") == tmp_path / "a" / "x.jpg" and index.get("X.jpg") == tmp_path / "b" / "X.jpg"
+    assert index.get("X.JPG") is None  # 어느 쪽인지 모름
+    assert index.get("y.jpg") == tmp_path / "b" / "y.JPG"

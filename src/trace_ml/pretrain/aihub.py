@@ -17,6 +17,7 @@ from typing import Any
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
 LABEL_KEYS = ("label", "class_name", "category_name", "class", "category", "defect_type", "defect", "type", "name")
 POINT_KEYS = ("points", "polygon", "segmentation", "coordinates", "xy", "poly")
+BOX_KEYS = ("bbox", "box", "bounding_box", "rect")
 FILE_KEYS = ("file_name", "filename", "imagePath", "image_path", "image_name", "img_name", "name", "path")
 Point = tuple[float, float]
 
@@ -130,15 +131,16 @@ def shapes_in(doc: Any) -> tuple[list[Shape], list[str]]:
             continue
         key = next((k for k in POINT_KEYS if k in obj), None)
         if key is None:
-            if any(k in obj for k in ("bbox", "box", "bounding_box", "rect")):
+            if any(k in obj for k in BOX_KEYS):
                 boxes.append(label)
             continue
         if obj.get("shape_type") in ("rectangle", "point", "line") and key == "points":
             boxes.append(label)
             continue
-        for poly in parse_points(obj[key]):
-            if len(poly) >= 3:
-                shapes.append(Shape(label, poly))
+        valid = [poly for poly in parse_points(obj[key]) if len(poly) >= 3]
+        if not valid and any(k in obj for k in BOX_KEYS):  # 폴리곤 칸이 비었거나 깨졌으면 상자만 있는 것과 같다
+            boxes.append(label)
+        shapes.extend(Shape(label, poly) for poly in valid)
     return shapes, boxes
 
 
@@ -146,37 +148,57 @@ def is_coco(doc: Any) -> bool:
     return isinstance(doc, dict) and isinstance(doc.get("images"), list) and isinstance(doc.get("annotations"), list)
 
 
-def read_coco(path: Path, doc: dict, index: dict[str, Path]) -> list[Item]:
+def read_coco(path: Path, doc: dict, index: ImageIndex) -> list[Item]:
     cats = {c.get("id"): str(c.get("name", c.get("id"))) for c in doc.get("categories", []) if isinstance(c, dict)}
     items: dict[Any, Item] = {}
     for im in doc["images"]:
         name = str(im.get("file_name", "")).replace("\\", "/").rsplit("/", 1)[-1]
-        items[im.get("id")] = Item(index.get(name.lower()), [], int(im.get("width") or 0), int(im.get("height") or 0), path)
+        items[im.get("id")] = Item(index.get(name), [], int(im.get("width") or 0), int(im.get("height") or 0), path)
     for ann in doc["annotations"]:
         item = items.get(ann.get("image_id"))
         if item is None:
             continue
         label = cats.get(ann.get("category_id")) or _label(ann) or "?"
-        polys = parse_points(ann.get("segmentation"))
-        if not polys:
+        valid = [poly for poly in parse_points(ann.get("segmentation")) if len(poly) >= 3]
+        if not valid:  # segmentation이 비었거나 점이 모자라면 상자만 있는 객체
             item.box_labels.append(label)
-        for poly in polys:
-            if len(poly) >= 3:
-                item.shapes.append(Shape(label, poly))
+        item.shapes.extend(Shape(label, poly) for poly in valid)
     return list(items.values())
 
 
-def index_images(roots: list[Path]) -> dict[str, Path]:
-    """파일 이름(소문자) → 경로. AI Hub는 원천(사진)·라벨링(JSON) 폴더가 나뉘어 있어 이름으로 짝짓는다."""
-    out: dict[str, Path] = {}
+@dataclass
+class ImageIndex:
+    """사진 이름 → 경로. 정확한 이름을 먼저 찾고, 없으면 대소문자를 무시해 찾는다.
+
+    AI Hub는 JSON의 `.JPG`와 실제 `.jpg`가 섞여 있다. 대소문자만 다른 사진이 여럿이면 어느 것인지 모르므로 찾지 않는다.
+    """
+
+    exact: dict[str, Path] = field(default_factory=dict)
+    folded: dict[str, Path | None] = field(default_factory=dict)  # None = 대소문자만 다른 사진이 여럿
+
+    def add(self, p: Path) -> None:
+        self.exact.setdefault(p.name, p)
+        key = p.name.lower()
+        if key in self.folded and self.folded[key] is not None and self.folded[key].name != p.name:
+            self.folded[key] = None
+        else:
+            self.folded.setdefault(key, p)
+
+    def get(self, name: str) -> Path | None:
+        return self.exact.get(name) or self.folded.get(name.lower())
+
+
+def index_images(roots: list[Path]) -> ImageIndex:
+    """AI Hub는 원천(사진)·라벨링(JSON) 폴더가 나뉘어 있어 이름으로 짝짓는다."""
+    out = ImageIndex()
     for root in roots:
         for p in root.rglob("*"):
             if p.suffix.lower() in IMAGE_EXTS:
-                out.setdefault(p.name.lower(), p)  # AI Hub는 JSON의 .JPG와 실제 .jpg가 섞여 있어 대소문자 무시
+                out.add(p)
     return out
 
 
-def read_items(roots: list[Path], index: dict[str, Path] | None = None) -> Iterator[Item]:
+def read_items(roots: list[Path], index: ImageIndex | None = None) -> Iterator[Item]:
     """roots 아래 모든 JSON을 읽어 사진별 Item. 읽지 못한 JSON은 건너뛴다(scan이 센다)."""
     index = index if index is not None else index_images(roots)
     for root in roots:
@@ -195,9 +217,9 @@ def read_items(roots: list[Path], index: dict[str, Path] | None = None) -> Itera
                 yield from coco_items
                 continue
             name = _image_name(doc)
-            image = index.get(name.lower()) if name else None
+            image = index.get(name) if name else None
             if image is None:  # JSON과 같은 이름의 사진
-                image = next((index[(path.stem + e).lower()] for e in IMAGE_EXTS if (path.stem + e).lower() in index), None)
+                image = next((found for e in IMAGE_EXTS if (found := index.get(path.stem + e))), None)
             shapes, boxes = shapes_in(doc)
             w, h = _size(doc)
             yield Item(image, shapes, w, h, path, boxes)

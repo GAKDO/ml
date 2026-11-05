@@ -67,7 +67,8 @@ def _scan(args: argparse.Namespace) -> int:
         print("폴리곤 라벨을 찾지 못함: 라벨 JSON 하나를 Claude에게 보여 주세요", file=sys.stderr)
         return 1
     if args.write_map:
-        draft = "".join(f"{json.dumps(k, ensure_ascii=False)}: null\n" for k, _ in r.labels.most_common())
+        labels = r.labels + r.box_labels  # 상자로만 나온 라벨도 적어 두어야 쓰는 클래스인지 정할 수 있다
+        draft = "".join(f"{json.dumps(k, ensure_ascii=False)}: null\n" for k, _ in labels.most_common())
         args.write_map.parent.mkdir(parents=True, exist_ok=True)
         args.write_map.write_text("# 값: scratch | dent | crack | stain | null(버림)\n" + draft, encoding="utf-8")
         print(f"map 초안: {args.write_map}")
