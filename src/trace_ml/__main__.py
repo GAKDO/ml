@@ -33,6 +33,7 @@ from .labelstudio import setup as ls_setup
 from .labelstudio.client import LabelStudio, LabelStudioError
 from .labelstudio.config import ConfigError, Settings, load_settings
 from .pretrain import cli as pretrain_cli
+from .store import StoreError
 from .training import cli as training_cli
 
 
@@ -89,7 +90,7 @@ def _labelstudio(command: str, env: Mapping[str, str], devices: list[str] | None
             synced = ls_setup.sync(ls, settings)
             print(f"프로젝트 id {synced.project_id} · 작업 {synced.tasks_before} → {synced.tasks_after}"
                   f" (+{synced.added}) · 주석 내보내기 완료")
-    except LabelStudioError as exc:
+    except (LabelStudioError, StoreError) as exc:
         print(f"실패: {exc}", file=sys.stderr)
         return 1
     return 0

@@ -57,6 +57,12 @@ def _polygons(ann: dict[str, Any]) -> list[tuple[str, list[tuple[float, float]]]
     return out
 
 
+def _split_valid(polys: list[tuple[str, list[tuple[float, float]]]]) -> tuple[list, int]:
+    """점이 3개 미만인 폴리곤은 그리지 않고 개수만 센다(상태표에 '잘못된 폴리곤'으로 남김)."""
+    good = [p for p in polys if len(p[1]) >= 3]
+    return good, len(polys) - len(good)
+
+
 def _is_no_defect(ann: dict[str, Any]) -> bool:
     return any(r.get("type") == "choices" and NO_DEFECT in ((r.get("value") or {}).get("choices") or [])
                for r in ann.get("result") or [])
@@ -122,6 +128,7 @@ def review_sheets(ls: LabelStudio, settings: Settings, devices: list[str], out_d
     out_dir.mkdir(parents=True, exist_ok=True)
     result = ReviewResult(project["id"], out_dir, {d: [0, 0, 0] for d in devices})
     rows: list[list[str]] = []
+    written: list[Path] = []
     for task in ls.tasks(project["id"]):
         key = _image_key(task)
         device = _device_of(key)
@@ -133,7 +140,12 @@ def review_sheets(ls: LabelStudio, settings: Settings, devices: list[str], out_d
             result.counts[device][2] += 1
             rows.append([device, str(task["id"]), name, "안 함", ""])
             continue
-        polys = _polygons(ann)
+        polys, broken = _split_valid(_polygons(ann))
+        if broken:
+            rows.append([device, str(task["id"]), name, f"잘못된 폴리곤 {broken}개(점 3개 미만)", ""])
+        if not polys and broken:
+            result.counts[device][0] += 1
+            continue
         if not polys:
             clean = _is_no_defect(ann)
             result.counts[device][1 if clean else 2] += 1
@@ -143,27 +155,31 @@ def review_sheets(ls: LabelStudio, settings: Settings, devices: list[str], out_d
         else:
             result.counts[device][0] += 1
         m = re.match(r"^s3://([^/]+)/(.+)$", key)
-        if not m:
-            raise LabelStudioError(f"작업 {task['id']}: 사진 주소를 읽지 못함({key!r})")
+        if not m or m[1] != settings.raw_bucket:
+            raise LabelStudioError(f"작업 {task['id']}: {settings.raw_bucket}의 사진 주소가 아님({key!r})")
         title = f"#{task['id']} {name}"
         sheet = render(fetch(m[1], m[2]), polys, title)
         (out_dir / device).mkdir(exist_ok=True)
         suffix = "" if polys else "__clean"
-        (out_dir / device / f"{Path(name).stem}__task{task['id']}{suffix}.jpg").write_bytes(sheet)
+        path = out_dir / device / f"{Path(name).stem}__task{task['id']}{suffix}.jpg"
+        path.write_bytes(sheet)
+        written.append(path)
         result.sheets += 1
         if polys:
             rows.append([device, str(task["id"]), name, "폴리곤", " ".join(label for label, _ in polys)])
     rows.sort()
-    with (out_dir / "summary.csv").open("w", newline="", encoding="utf-8-sig") as f:
+    summary = out_dir / "summary.csv"
+    written.append(summary)
+    with summary.open("w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
         writer.writerow(["기기", "작업", "사진", "상태", "라벨"])
         writer.writerows(rows)
     if make_zip:
         result.zip_path = out_dir.with_suffix(".zip")
         with zipfile.ZipFile(result.zip_path, "w", zipfile.ZIP_STORED) as z:
-            for path in sorted(out_dir.rglob("*")):
-                if path.is_file():
-                    z.write(path, path.relative_to(out_dir.parent))
+            # 이번 실행에서 만든 파일만 넣는다(이전 실행의 JPG가 섞이지 않게)
+            for path in sorted(written):
+                z.write(path, path.relative_to(out_dir.parent))
     return result
 
 
