@@ -78,3 +78,31 @@ class LabelStudio:
             reason = str(storage.get("traceback") or "").strip().splitlines()[-1:] or ["사유 없음"]
             raise LabelStudioError(f"{kind} 스토리지 {storage_id} 동기화 실패: {reason[0]}")
         return storage or {}
+
+    # 작업·주석
+    def tasks(self, project_id: int, page_size: int = 500) -> list[dict[str, Any]]:
+        """프로젝트의 작업을 모두 읽는다(페이지를 끝까지 넘김)."""
+        found: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            # resolve_uri=False: 이미지 값을 프록시 URL이 아닌 원본 s3:// 경로로 받는다(기기 ID를 읽으려고)
+            data = self._call("GET", "/api/tasks", params={"project": project_id, "page": page,
+                                                           "page_size": page_size, "fields": "all",
+                                                           "resolve_uri": False})
+            if not isinstance(data, dict):
+                return found + list(data or [])
+            items = list(data.get("tasks") or data.get("results") or [])
+            found.extend(items)
+            total = data.get("total")
+            if total is None:
+                if len(items) < page_size:
+                    return found
+            elif len(found) >= int(total):
+                return found
+            elif not items:
+                # 서버가 page_size를 더 작게 잘라도 total까지 계속 읽는다. 빈 페이지면 더 진행할 수 없다
+                raise LabelStudioError(f"작업 {total}개 중 {len(found)}개만 읽힘: 페이지 {page}가 비어 있음")
+            page += 1
+
+    def create_annotation(self, task_id: int, result: list[dict[str, Any]]) -> dict[str, Any]:
+        return self._call("POST", f"/api/tasks/{task_id}/annotations", json={"result": result})

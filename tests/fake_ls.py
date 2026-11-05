@@ -37,6 +37,7 @@ class FakeLabelStudio:
     storages: dict[str, list[dict[str, Any]]] = field(default_factory=lambda: {"s3": [], "export/s3": []})
     calls: list[tuple[str, str]] = field(default_factory=list)
     imported: set[str] = field(default_factory=set)
+    tasks: list[dict[str, Any]] = field(default_factory=list)
     unreachable: bool = False
     _next_id: int = 1
 
@@ -79,7 +80,25 @@ class FakeLabelStudio:
             if m[3]:
                 storage["status"] = "completed"
             return FakeResponse(200, storage)
+        if path == "/api/tasks":
+            mine = [t for t in self.tasks if t["project"] == params.get("project")]
+            # 실제 서버처럼 page_size 상한(5)을 두고, resolve_uri를 끄지 않으면 프록시 URL로 바꾼다
+            size, page = min(int(params.get("page_size", 100)), 5), int(params.get("page", 1))
+            if params.get("resolve_uri") is not False:
+                mine = [{**t, "data": {"image": f"/tasks/{t['id']}/resolve/?fileuri=x"}} for t in mine]
+            return FakeResponse(200, {"total": len(mine), "tasks": mine[(page - 1) * size:page * size]})
+        if m := re.fullmatch(r"/api/tasks/(\d+)/annotations", path):
+            task = next(t for t in self.tasks if t["id"] == int(m[1]))
+            task["annotations"].append(body)
+            task["total_annotations"] = len(task["annotations"])
+            return FakeResponse(201, {"id": self._id(), **body})
         return FakeResponse(404, {"detail": f"없는 경로 {path}"})
+
+    def add_task(self, project_id: int, key: str, annotated: bool = False) -> dict[str, Any]:
+        task = {"id": self._id(), "project": project_id, "data": {"image": f"s3://trace-raw/{key}"},
+                "annotations": [{"result": []}] if annotated else [], "total_annotations": int(annotated)}
+        self.tasks.append(task)
+        return task
 
     def _import(self, storage: dict[str, Any]) -> None:
         """키 필터에 맞는 새 객체마다 작업 하나를 만든다(use_blob_urls)."""
