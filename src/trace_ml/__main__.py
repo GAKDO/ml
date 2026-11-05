@@ -3,6 +3,7 @@
     trace-ml                      버전
     trace-ml labelstudio setup    프로젝트·소스(trace-raw)·타깃(trace-labels)을 없을 때만 만든다
     trace-ml labelstudio sync     새 사진을 작업으로 가져오고 주석을 trace-labels로 내보낸다
+    trace-ml labelstudio mark-clean MB02 [MB03 ...] [--dry-run]   흠집 없는 기기의 남은 사진에 no_defect 제출
     trace-ml db init              ml 스키마 표 3개를 없을 때만 만든다
     trace-ml dataset device add|list   기기 → 분할(TRAIN·VAL·TEST)
     trace-ml dataset build|list   제출된 주석으로 데이터셋 버전을 만든다(덮어쓰기 없음)
@@ -24,6 +25,7 @@ from collections.abc import Mapping
 from . import __version__
 from .dataset import cli as dataset_cli
 from .inspect import cli as inspect_cli
+from .labelstudio import clean as ls_clean
 from .labelstudio import setup as ls_setup
 from .labelstudio.client import LabelStudio, LabelStudioError
 from .labelstudio.config import ConfigError, Settings, load_settings
@@ -35,7 +37,8 @@ def make_client(settings: Settings) -> LabelStudio:
     return LabelStudio(settings.url, settings.api_key)
 
 
-def _labelstudio(command: str, env: Mapping[str, str]) -> int:
+def _labelstudio(command: str, env: Mapping[str, str], devices: list[str] | None = None,
+                 dry_run: bool = False) -> int:
     try:
         settings = load_settings(env)
     except ConfigError as exc:
@@ -49,6 +52,17 @@ def _labelstudio(command: str, env: Mapping[str, str]) -> int:
             print(f"프로젝트 id {result.project_id} · 새로 만든 것: {made}")
             for warning in result.warnings:
                 print(f"주의: {warning}")
+        elif command == "mark-clean":
+            if not devices:
+                print("기기 ID를 하나 이상 주세요 (예: trace-ml labelstudio mark-clean MB02 MB03)", file=sys.stderr)
+                return 2
+            cleaned = ls_clean.mark_clean(ls, settings, devices, dry_run=dry_run)
+            verb = "제출할 예정" if dry_run else "제출"
+            for device, (made, skipped) in cleaned.counts.items():
+                note = " ← 사진이 없음, 기기 ID 확인" if made == 0 and skipped == 0 else ""
+                print(f"{device}: no_defect {verb} {made}장 · 이미 주석 있어 건너뜀 {skipped}장{note}")
+            if not dry_run:
+                print("trace-labels에 저장하려면 trace-ml labelstudio sync를 실행하세요")
         else:
             synced = ls_setup.sync(ls, settings)
             print(f"프로젝트 id {synced.project_id} · 작업 {synced.tasks_before} → {synced.tasks_after}"
@@ -68,7 +82,9 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
     parser = argparse.ArgumentParser(prog="trace-ml")
     sub = parser.add_subparsers(dest="tool", required=True)
     ls_parser = sub.add_parser("labelstudio", help="Label Studio 연동(ML3)")
-    ls_parser.add_argument("command", choices=["setup", "sync"])
+    ls_parser.add_argument("command", choices=["setup", "sync", "mark-clean"])
+    ls_parser.add_argument("devices", nargs="*", help="mark-clean: 흠집 없는 기기 ID (예: MB02 MB03)")
+    ls_parser.add_argument("--dry-run", action="store_true", help="mark-clean: 제출하지 않고 장수만 보인다")
     dataset_cli.add_parsers(sub)
     training_cli.add_parsers(sub)
     inspect_cli.add_parsers(sub)
@@ -76,7 +92,7 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
     args = parser.parse_args(args_list)
     environ = os.environ if env is None else env
     if args.tool == "labelstudio":
-        return _labelstudio(args.command, environ)
+        return _labelstudio(args.command, environ, args.devices, args.dry_run)
     if args.tool in ("inspect", "align"):
         return inspect_cli.run(args, environ)
     if args.tool == "pretrain":

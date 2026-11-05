@@ -9,6 +9,7 @@ from fake_ls import BASE, FakeLabelStudio
 
 from trace_ml import __main__ as cli
 from trace_ml.codes import DEFECT_CLASSES
+from trace_ml.labelstudio.clean import NO_DEFECT_RESULT, mark_clean
 from trace_ml.labelstudio.client import LabelStudio, LabelStudioError
 from trace_ml.labelstudio.config import KEY_REGEX, ConfigError, Settings, label_config, load_settings
 from trace_ml.labelstudio.setup import setup, sync
@@ -175,3 +176,69 @@ def test_명령줄_setup과_sync는_결과를_보이고_Label_Studio에_닿지_�
     fake.unreachable = True
     assert cli.main(["labelstudio", "sync"], env=ENV) == 1
     assert "닿지 않음" in capsys.readouterr().err
+
+
+# 흠집 없는 기기 일괄 no_defect
+def _project_with_tasks(fake: FakeLabelStudio) -> int:
+    pid = fake.add_project("TRACE 흠집 라벨링", label_config())["id"]
+    for n in range(1, 4):
+        fake.add_task(pid, f"MB02/MB02_TOP_L1_CAM1_0{n}.jpg")
+    fake.add_task(pid, "MB02/MB02_BOT_L1_CAM1_01.jpg", annotated=True)
+    fake.add_task(pid, "MB05/MB05_TOP_L1_CAM1_01.jpg")
+    return pid
+
+
+def test_mark_clean은_고른_기기의_주석_없는_사진에만_no_defect를_제출하고_다른_기기와_그린_사진은_건드리지_않는다(fake, settings):
+    _project_with_tasks(fake)
+
+    result = mark_clean(client(fake), settings, ["MB02"])
+
+    assert result.counts == {"MB02": (3, 1)}
+    by_key = {t["data"]["image"].rsplit("/", 1)[1]: t for t in fake.tasks}
+    assert by_key["MB02_TOP_L1_CAM1_01.jpg"]["annotations"] == [{"result": NO_DEFECT_RESULT}]
+    assert by_key["MB02_BOT_L1_CAM1_01.jpg"]["annotations"] == [{"result": []}]
+    assert by_key["MB05_TOP_L1_CAM1_01.jpg"]["annotations"] == []
+
+
+def test_mark_clean을_두_번_해도_주석이_하나씩만_생긴다(fake, settings):
+    _project_with_tasks(fake)
+    mark_clean(client(fake), settings, ["MB02"])
+
+    again = mark_clean(client(fake), settings, ["MB02"])
+
+    assert again.counts == {"MB02": (0, 4)}
+
+
+def test_mark_clean_dry_run은_장수만_세고_제출하지_않는다(fake, settings):
+    _project_with_tasks(fake)
+
+    result = mark_clean(client(fake), settings, ["MB02"], dry_run=True)
+
+    assert result.counts == {"MB02": (3, 1)}
+    assert not any(m == "POST" and "annotations" in p for m, p in fake.calls)
+
+
+def test_mark_clean에_기기_ID_형식이_아닌_값을_주면_아무것도_제출하지_않는다(fake, settings):
+    _project_with_tasks(fake)
+
+    with pytest.raises(LabelStudioError, match="형식"):
+        mark_clean(client(fake), settings, ["MB0"])
+    assert all(t["total_annotations"] == 0 for t in fake.tasks if "MB05" in t["data"]["image"])
+
+
+def test_mark_clean_작업은_페이지를_끝까지_넘겨_모두_읽는다(fake, settings):
+    pid = fake.add_project("TRACE 흠집 라벨링", label_config())["id"]
+    for n in range(7):
+        fake.add_task(pid, f"MB03/MB03_TOP_L{n % 4 + 1}_CAM1_0{n}.jpg")
+
+    assert len(client(fake).tasks(pid, page_size=3)) == 7
+
+
+def test_명령줄_mark_clean은_기기별_장수를_보이고_기기를_안_주면_2로_끝난다(fake, monkeypatch, capsys):
+    _project_with_tasks(fake)
+    monkeypatch.setattr(cli, "make_client", lambda s: client(fake))
+
+    assert cli.main(["labelstudio", "mark-clean"], env=ENV) == 2
+    assert cli.main(["labelstudio", "mark-clean", "MB02", "MB09"], env=ENV) == 0
+    out = capsys.readouterr().out
+    assert "MB02: no_defect 제출 3장" in out and "MB09" in out and "사진이 없음" in out

@@ -78,3 +78,21 @@ class LabelStudio:
             reason = str(storage.get("traceback") or "").strip().splitlines()[-1:] or ["사유 없음"]
             raise LabelStudioError(f"{kind} 스토리지 {storage_id} 동기화 실패: {reason[0]}")
         return storage or {}
+
+    # 작업·주석
+    def tasks(self, project_id: int, page_size: int = 500) -> list[dict[str, Any]]:
+        """프로젝트의 작업을 모두 읽는다(페이지를 끝까지 넘김)."""
+        found: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            data = self._call("GET", "/api/tasks", params={"project": project_id, "page": page,
+                                                           "page_size": page_size, "fields": "all"})
+            items = list(data.get("tasks") or data.get("results") or []) if isinstance(data, dict) else list(data or [])
+            found.extend(items)
+            total = int(data.get("total") or 0) if isinstance(data, dict) else 0
+            if len(items) < page_size or (total and len(found) >= total):
+                return found
+            page += 1
+
+    def create_annotation(self, task_id: int, result: list[dict[str, Any]]) -> dict[str, Any]:
+        return self._call("POST", f"/api/tasks/{task_id}/annotations", json={"result": result})
