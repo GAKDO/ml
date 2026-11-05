@@ -33,6 +33,7 @@ class ScanReport:
     with_shapes: int = 0
     boxes_only: int = 0
     labels: Counter = field(default_factory=Counter)
+    box_labels: Counter = field(default_factory=Counter)  # 상자만 있는 객체의 라벨
 
 
 @dataclass
@@ -54,6 +55,7 @@ def scan(items: Iterable[Item]) -> ScanReport:
         r.items += 1
         r.no_image += it.image is None
         r.boxes_only += it.boxes_only
+        r.box_labels.update(it.box_labels)
         if it.shapes:
             r.with_shapes += 1
         r.labels.update(s.label for s in it.shapes)
@@ -110,6 +112,10 @@ def build(items: Iterable[Item], mapping: dict[str, str | None], dest: Path, *, 
             break
         if it.image is None:
             report.skipped["사진 없음"] += 1
+            continue
+        if any(mapping.get(b) is not None for b in it.box_labels):
+            # 쓰는 흠집이 상자로만 표시된 사진은 그 흠집을 폴리곤으로 못 넣으므로, 넣으면 흠집 자리를 배경으로 배운다
+            report.skipped["상자로만 표시된 흠집 있음"] += 1
             continue
         kept = []
         for s in it.shapes:
