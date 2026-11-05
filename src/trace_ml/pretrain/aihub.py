@@ -36,7 +36,11 @@ class Item:
     width: int = 0
     height: int = 0
     source: Path | None = None
-    boxes_only: int = 0  # 폴리곤 없이 상자만 있던 객체 수(사전 학습에서 버림)
+    box_labels: list[str] = field(default_factory=list)  # 폴리곤 없이 상자만 있던 객체의 라벨
+
+    @property
+    def boxes_only(self) -> int:
+        return len(self.box_labels)
 
 
 def _num(v: Any) -> float | None:
@@ -116,9 +120,10 @@ def _size(doc: Any) -> tuple[int, int]:
     return 0, 0
 
 
-def shapes_in(doc: Any) -> tuple[list[Shape], int]:
-    """이미지별 JSON 안의 '라벨 + 점' 객체들. 상자만 있는 객체 수도 센다."""
-    shapes, boxes = [], 0
+def shapes_in(doc: Any) -> tuple[list[Shape], list[str]]:
+    """이미지별 JSON 안의 '라벨 + 점' 객체들과, 상자만 있는 객체의 라벨."""
+    shapes: list[Shape] = []
+    boxes: list[str] = []
     for obj in _walk(doc):
         label = _label(obj)
         if not label:
@@ -126,10 +131,10 @@ def shapes_in(doc: Any) -> tuple[list[Shape], int]:
         key = next((k for k in POINT_KEYS if k in obj), None)
         if key is None:
             if any(k in obj for k in ("bbox", "box", "bounding_box", "rect")):
-                boxes += 1
+                boxes.append(label)
             continue
         if obj.get("shape_type") in ("rectangle", "point", "line") and key == "points":
-            boxes += 1
+            boxes.append(label)
             continue
         for poly in parse_points(obj[key]):
             if len(poly) >= 3:
@@ -146,7 +151,7 @@ def read_coco(path: Path, doc: dict, index: dict[str, Path]) -> list[Item]:
     items: dict[Any, Item] = {}
     for im in doc["images"]:
         name = str(im.get("file_name", "")).replace("\\", "/").rsplit("/", 1)[-1]
-        items[im.get("id")] = Item(index.get(name), [], int(im.get("width") or 0), int(im.get("height") or 0), path)
+        items[im.get("id")] = Item(index.get(name.lower()), [], int(im.get("width") or 0), int(im.get("height") or 0), path)
     for ann in doc["annotations"]:
         item = items.get(ann.get("image_id"))
         if item is None:
@@ -154,7 +159,7 @@ def read_coco(path: Path, doc: dict, index: dict[str, Path]) -> list[Item]:
         label = cats.get(ann.get("category_id")) or _label(ann) or "?"
         polys = parse_points(ann.get("segmentation"))
         if not polys:
-            item.boxes_only += 1
+            item.box_labels.append(label)
         for poly in polys:
             if len(poly) >= 3:
                 item.shapes.append(Shape(label, poly))
@@ -162,12 +167,12 @@ def read_coco(path: Path, doc: dict, index: dict[str, Path]) -> list[Item]:
 
 
 def index_images(roots: list[Path]) -> dict[str, Path]:
-    """파일 이름 → 경로. AI Hub는 원천(사진)·라벨링(JSON) 폴더가 나뉘어 있어 이름으로 짝짓는다."""
+    """파일 이름(소문자) → 경로. AI Hub는 원천(사진)·라벨링(JSON) 폴더가 나뉘어 있어 이름으로 짝짓는다."""
     out: dict[str, Path] = {}
     for root in roots:
         for p in root.rglob("*"):
             if p.suffix.lower() in IMAGE_EXTS:
-                out.setdefault(p.name, p)
+                out.setdefault(p.name.lower(), p)  # AI Hub는 JSON의 .JPG와 실제 .jpg가 섞여 있어 대소문자 무시
     return out
 
 
@@ -190,9 +195,9 @@ def read_items(roots: list[Path], index: dict[str, Path] | None = None) -> Itera
                 yield from coco_items
                 continue
             name = _image_name(doc)
-            image = index.get(name) if name else None
+            image = index.get(name.lower()) if name else None
             if image is None:  # JSON과 같은 이름의 사진
-                image = next((index[path.stem + e] for e in IMAGE_EXTS if path.stem + e in index), None)
+                image = next((index[(path.stem + e).lower()] for e in IMAGE_EXTS if (path.stem + e).lower() in index), None)
             shapes, boxes = shapes_in(doc)
             w, h = _size(doc)
             yield Item(image, shapes, w, h, path, boxes)
