@@ -89,6 +89,8 @@ class FakeLabelStudio:
             return FakeResponse(200, {"total": len(mine), "tasks": mine[(page - 1) * size:page * size]})
         if m := re.fullmatch(r"/api/tasks/(\d+)/annotations", path):
             task = next(t for t in self.tasks if t["id"] == int(m[1]))
+            if method == "GET":
+                return FakeResponse(200, task["annotations"])
             task["annotations"].append(body)
             task["total_annotations"] = len(task["annotations"])
             return FakeResponse(201, {"id": self._id(), **body})

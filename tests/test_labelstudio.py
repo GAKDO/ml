@@ -12,6 +12,7 @@ from trace_ml.codes import DEFECT_CLASSES
 from trace_ml.labelstudio.clean import NO_DEFECT_RESULT, mark_clean
 from trace_ml.labelstudio.client import LabelStudio, LabelStudioError
 from trace_ml.labelstudio.config import KEY_REGEX, ConfigError, Settings, label_config, load_settings
+from trace_ml.labelstudio.review import review_sheets
 from trace_ml.labelstudio.setup import setup, sync
 
 SECRET = "minio-secret-value"
@@ -252,3 +253,92 @@ def test_setup과_sync에_기기_ID나_dry_run을_주면_아무것도_하지_않
     assert cli.main(["labelstudio", "sync", "--dry-run"], env=ENV) == 2
     assert cli.main(["labelstudio", "setup", "MB02"], env=ENV) == 2
     assert fake.calls == []
+
+
+# 검수용 모아보기
+def _jpeg(w: int = 640, h: int = 360) -> bytes:
+    import cv2
+    import numpy as np
+
+    ok, buf = cv2.imencode(".jpg", np.full((h, w, 3), 90, np.uint8))
+    assert ok
+    return buf.tobytes()
+
+
+def _polygon(label: str, x: float, y: float) -> dict:
+    pts = [[x, y], [x + 2, y], [x + 2, y + 3], [x, y + 3]]
+    return {"type": "polygonlabels", "from_name": "defect", "to_name": "image",
+            "value": {"points": pts, "polygonlabels": [label]}}
+
+
+def test_review는_폴리곤_사진만_모아보기로_만들고_상태표와_zip을_남긴다(fake, settings, tmp_path):
+    pid = fake.add_project("TRACE 흠집 라벨링", label_config())["id"]
+    drawn = fake.add_task(pid, "MB05/MB05_TOP_L2_CAM1_01.jpg")
+    drawn["annotations"] = [{"id": 1, "result": [_polygon("scratch", 80, 10), _polygon("dent", 10, 80)]}]
+    clean = fake.add_task(pid, "MB05/MB05_BOT_L2_CAM1_01.jpg")
+    clean["annotations"] = [{"id": 2, "result": NO_DEFECT_RESULT}]
+    fake.add_task(pid, "MB05/MB05_TOP_L3_CAM1_01.jpg")
+    fake.add_task(pid, "MB07/MB07_TOP_L2_CAM1_01.jpg")
+    fetched: list[tuple[str, str]] = []
+
+    def fetch(bucket: str, key: str) -> bytes:
+        fetched.append((bucket, key))
+        return _jpeg()
+
+    result = review_sheets(client(fake), settings, ["MB05"], tmp_path / "review", fetch)
+
+    assert result.counts == {"MB05": [1, 1, 1]}
+    assert fetched == [("trace-raw", "MB05/MB05_TOP_L2_CAM1_01.jpg")]
+    sheets = list((tmp_path / "review" / "MB05").glob("*.jpg"))
+    assert [p.name for p in sheets] == [f"MB05_TOP_L2_CAM1_01__task{drawn['id']}.jpg"]
+    summary = (tmp_path / "review" / "summary.csv").read_text(encoding="utf-8-sig")
+    assert "scratch dent" in summary and "no_defect" in summary and "안 함" in summary
+    assert result.zip_path is not None and result.zip_path.exists()
+
+
+def test_명령줄_review는_기기를_안_주면_2로_끝나고_dry_run을_받지_않는다(fake, monkeypatch):
+    monkeypatch.setattr(cli, "make_client", lambda s: client(fake))
+
+    assert cli.main(["labelstudio", "review"], env=ENV) == 2
+    assert cli.main(["labelstudio", "review", "MB05", "--dry-run"], env=ENV) == 2
+    assert fake.calls == []
+
+
+def test_review_with_clean은_no_defect_사진도_넣어_빠진_흠집을_볼_수_있게_한다(fake, settings, tmp_path):
+    pid = fake.add_project("TRACE 흠집 라벨링", label_config())["id"]
+    clean = fake.add_task(pid, "MB05/MB05_BOT_L2_CAM1_01.jpg")
+    clean["annotations"] = [{"id": 2, "result": NO_DEFECT_RESULT}]
+
+    result = review_sheets(client(fake), settings, ["MB05"], tmp_path / "r", lambda b, k: _jpeg(),
+                           include_clean=True)
+
+    assert result.counts == {"MB05": [0, 1, 0]} and result.sheets == 1
+    assert [p.name for p in (tmp_path / "r" / "MB05").glob("*.jpg")] == [f"MB05_BOT_L2_CAM1_01__task{clean['id']}__clean.jpg"]
+
+
+def test_review는_점이_모자란_폴리곤을_그리지_않고_상태표에_남기며_이전_실행_파일은_zip에_넣지_않는다(fake, settings, tmp_path):
+    pid = fake.add_project("TRACE 흠집 라벨링", label_config())["id"]
+    bad = fake.add_task(pid, "MB05/MB05_TOP_L2_CAM1_01.jpg")
+    short = {"type": "polygonlabels", "value": {"points": [[1, 1], [2, 2]], "polygonlabels": ["dent"]}}
+    bad["annotations"] = [{"id": 1, "result": [short]}]
+    out = tmp_path / "review"
+    (out / "MB05").mkdir(parents=True)
+    (out / "MB05" / "old.jpg").write_bytes(b"x")
+
+    result = review_sheets(client(fake), settings, ["MB05"], out, lambda b, k: _jpeg())
+
+    assert result.sheets == 0
+    assert "잘못된 폴리곤 1개" in (out / "summary.csv").read_text(encoding="utf-8-sig")
+    import zipfile
+    assert zipfile.ZipFile(result.zip_path).namelist() == ["review/summary.csv"]
+
+
+def test_review는_trace_raw가_아닌_사진_주소를_거부한다(fake, settings, tmp_path):
+    pid = fake.add_project("TRACE 흠집 라벨링", label_config())["id"]
+    task = fake.add_task(pid, "MB05/MB05_TOP_L2_CAM1_01.jpg")
+    task["data"]["image"] = "s3://other/MB05/MB05_TOP_L2_CAM1_01.jpg"
+    task["annotations"] = [{"id": 1, "result": [_polygon("dent", 10, 10)]}]
+
+    with pytest.raises(LabelStudioError, match="trace-raw"):
+        review_sheets(client(fake), settings, ["MB05"], tmp_path / "r", lambda b, k: _jpeg())
+
