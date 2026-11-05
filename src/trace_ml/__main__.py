@@ -4,6 +4,7 @@
     trace-ml labelstudio setup    프로젝트·소스(trace-raw)·타깃(trace-labels)을 없을 때만 만든다
     trace-ml labelstudio sync     새 사진을 작업으로 가져오고 주석을 trace-labels로 내보낸다
     trace-ml labelstudio mark-clean MB02 [MB03 ...] [--dry-run]   흠집 없는 기기의 남은 사진에 no_defect 제출
+    trace-ml labelstudio review MB05 [MB07 ...] [--out 폴더] [--with-clean]   폴리곤 검수용 모아보기 JPG·summary.csv·zip
     trace-ml db init              ml 스키마 표 3개를 없을 때만 만든다
     trace-ml dataset device add|list   기기 → 분할(TRAIN·VAL·TEST)
     trace-ml dataset build|list   제출된 주석으로 데이터셋 버전을 만든다(덮어쓰기 없음)
@@ -21,11 +22,13 @@ import argparse
 import os
 import sys
 from collections.abc import Mapping
+from pathlib import Path
 
 from . import __version__
 from .dataset import cli as dataset_cli
 from .inspect import cli as inspect_cli
 from .labelstudio import clean as ls_clean
+from .labelstudio import review as ls_review
 from .labelstudio import setup as ls_setup
 from .labelstudio.client import LabelStudio, LabelStudioError
 from .labelstudio.config import ConfigError, Settings, load_settings
@@ -37,15 +40,28 @@ def make_client(settings: Settings) -> LabelStudio:
     return LabelStudio(settings.url, settings.api_key)
 
 
+def make_review_fetch(settings: Settings) -> ls_review.Fetch:
+    return ls_review.minio_fetch(settings)
+
+
 def _labelstudio(command: str, env: Mapping[str, str], devices: list[str] | None = None,
-                 dry_run: bool = False) -> int:
+                 dry_run: bool = False, out: str = "labelstudio-review", include_clean: bool = False) -> int:
     try:
         settings = load_settings(env)
     except ConfigError as exc:
         print(f"설정 오류: {exc}", file=sys.stderr)
         return 2
-    if command != "mark-clean" and (devices or dry_run):
-        print(f"기기 ID와 --dry-run은 mark-clean에서만 씁니다 ({command}는 받지 않음)", file=sys.stderr)
+    if command in ("setup", "sync") and devices:
+        print(f"기기 ID는 mark-clean·review에서만 씁니다 ({command}는 받지 않음)", file=sys.stderr)
+        return 2
+    if command != "review" and include_clean:
+        print("--with-clean은 review에서만 씁니다", file=sys.stderr)
+        return 2
+    if command != "mark-clean" and dry_run:
+        print(f"--dry-run은 mark-clean에서만 씁니다 ({command}는 받지 않음)", file=sys.stderr)
+        return 2
+    if command in ("mark-clean", "review") and not devices:
+        print(f"기기 ID를 하나 이상 주세요 (예: trace-ml labelstudio {command} MB05 MB07)", file=sys.stderr)
         return 2
     ls = make_client(settings)
     try:
@@ -55,10 +71,13 @@ def _labelstudio(command: str, env: Mapping[str, str], devices: list[str] | None
             print(f"프로젝트 id {result.project_id} · 새로 만든 것: {made}")
             for warning in result.warnings:
                 print(f"주의: {warning}")
+        elif command == "review":
+            reviewed = ls_review.review_sheets(ls, settings, devices or [], Path(out),
+                                               make_review_fetch(settings), include_clean=include_clean)
+            for device, (drawn, clean, todo) in reviewed.counts.items():
+                print(f"{device}: 폴리곤 {drawn}장 · no_defect {clean}장 · 아직 안 함 {todo}장")
+            print(f"모아보기 {reviewed.sheets}장 → {reviewed.out_dir} · 압축 {reviewed.zip_path}")
         elif command == "mark-clean":
-            if not devices:
-                print("기기 ID를 하나 이상 주세요 (예: trace-ml labelstudio mark-clean MB02 MB03)", file=sys.stderr)
-                return 2
             cleaned = ls_clean.mark_clean(ls, settings, devices, dry_run=dry_run)
             verb = "제출할 예정" if dry_run else "제출"
             for device, (made, skipped) in cleaned.counts.items():
@@ -85,9 +104,11 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
     parser = argparse.ArgumentParser(prog="trace-ml")
     sub = parser.add_subparsers(dest="tool", required=True)
     ls_parser = sub.add_parser("labelstudio", help="Label Studio 연동(ML3)")
-    ls_parser.add_argument("command", choices=["setup", "sync", "mark-clean"])
+    ls_parser.add_argument("command", choices=["setup", "sync", "mark-clean", "review"])
     ls_parser.add_argument("devices", nargs="*", help="mark-clean: 흠집 없는 기기 ID (예: MB02 MB03)")
     ls_parser.add_argument("--dry-run", action="store_true", help="mark-clean: 제출하지 않고 장수만 보인다")
+    ls_parser.add_argument("--out", default="labelstudio-review", help="review: 모아보기를 쓸 폴더")
+    ls_parser.add_argument("--with-clean", action="store_true", help="review: no_defect 사진도 넣어 빠진 흠집을 본다")
     dataset_cli.add_parsers(sub)
     training_cli.add_parsers(sub)
     inspect_cli.add_parsers(sub)
@@ -95,7 +116,7 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
     args = parser.parse_args(args_list)
     environ = os.environ if env is None else env
     if args.tool == "labelstudio":
-        return _labelstudio(args.command, environ, args.devices, args.dry_run)
+        return _labelstudio(args.command, environ, args.devices, args.dry_run, args.out, args.with_clean)
     if args.tool in ("inspect", "align"):
         return inspect_cli.run(args, environ)
     if args.tool == "pretrain":

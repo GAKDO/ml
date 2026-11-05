@@ -106,3 +106,6 @@ class LabelStudio:
 
     def create_annotation(self, task_id: int, result: list[dict[str, Any]]) -> dict[str, Any]:
         return self._call("POST", f"/api/tasks/{task_id}/annotations", json={"result": result})
+
+    def annotations(self, task_id: int) -> list[dict[str, Any]]:
+        return self._items(self._call("GET", f"/api/tasks/{task_id}/annotations"))
