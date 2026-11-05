@@ -232,6 +232,8 @@ def test_mark_clean_작업은_페이지를_끝까지_넘겨_모두_읽는다(fak
         fake.add_task(pid, f"MB03/MB03_TOP_L{n % 4 + 1}_CAM1_0{n}.jpg")
 
     assert len(client(fake).tasks(pid, page_size=3)) == 7
+    # 서버가 page_size를 5로 잘라도 total까지 모두 읽는다
+    assert len(client(fake).tasks(pid, page_size=500)) == 7
 
 
 def test_명령줄_mark_clean은_기기별_장수를_보이고_기기를_안_주면_2로_끝난다(fake, monkeypatch, capsys):
@@ -242,3 +244,11 @@ def test_명령줄_mark_clean은_기기별_장수를_보이고_기기를_안_주
     assert cli.main(["labelstudio", "mark-clean", "MB02", "MB09"], env=ENV) == 0
     out = capsys.readouterr().out
     assert "MB02: no_defect 제출 3장" in out and "MB09" in out and "사진이 없음" in out
+
+
+def test_setup과_sync에_기기_ID나_dry_run을_주면_아무것도_하지_않고_2로_끝난다(fake, monkeypatch):
+    monkeypatch.setattr(cli, "make_client", lambda s: client(fake))
+
+    assert cli.main(["labelstudio", "sync", "--dry-run"], env=ENV) == 2
+    assert cli.main(["labelstudio", "setup", "MB02"], env=ENV) == 2
+    assert fake.calls == []

@@ -82,7 +82,10 @@ class FakeLabelStudio:
             return FakeResponse(200, storage)
         if path == "/api/tasks":
             mine = [t for t in self.tasks if t["project"] == params.get("project")]
-            size, page = int(params.get("page_size", 100)), int(params.get("page", 1))
+            # 실제 서버처럼 page_size 상한(5)을 두고, resolve_uri를 끄지 않으면 프록시 URL로 바꾼다
+            size, page = min(int(params.get("page_size", 100)), 5), int(params.get("page", 1))
+            if params.get("resolve_uri") is not False:
+                mine = [{**t, "data": {"image": f"/tasks/{t['id']}/resolve/?fileuri=x"}} for t in mine]
             return FakeResponse(200, {"total": len(mine), "tasks": mine[(page - 1) * size:page * size]})
         if m := re.fullmatch(r"/api/tasks/(\d+)/annotations", path):
             task = next(t for t in self.tasks if t["id"] == int(m[1]))

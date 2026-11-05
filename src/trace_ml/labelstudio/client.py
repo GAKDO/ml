@@ -85,13 +85,23 @@ class LabelStudio:
         found: list[dict[str, Any]] = []
         page = 1
         while True:
+            # resolve_uri=False: 이미지 값을 프록시 URL이 아닌 원본 s3:// 경로로 받는다(기기 ID를 읽으려고)
             data = self._call("GET", "/api/tasks", params={"project": project_id, "page": page,
-                                                           "page_size": page_size, "fields": "all"})
-            items = list(data.get("tasks") or data.get("results") or []) if isinstance(data, dict) else list(data or [])
+                                                           "page_size": page_size, "fields": "all",
+                                                           "resolve_uri": False})
+            if not isinstance(data, dict):
+                return found + list(data or [])
+            items = list(data.get("tasks") or data.get("results") or [])
             found.extend(items)
-            total = int(data.get("total") or 0) if isinstance(data, dict) else 0
-            if len(items) < page_size or (total and len(found) >= total):
+            total = data.get("total")
+            if total is None:
+                if len(items) < page_size:
+                    return found
+            elif len(found) >= int(total):
                 return found
+            elif not items:
+                # 서버가 page_size를 더 작게 잘라도 total까지 계속 읽는다. 빈 페이지면 더 진행할 수 없다
+                raise LabelStudioError(f"작업 {total}개 중 {len(found)}개만 읽힘: 페이지 {page}가 비어 있음")
             page += 1
 
     def create_annotation(self, task_id: int, result: list[dict[str, Any]]) -> dict[str, Any]:

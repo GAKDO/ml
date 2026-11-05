@@ -44,6 +44,9 @@ def _labelstudio(command: str, env: Mapping[str, str], devices: list[str] | None
     except ConfigError as exc:
         print(f"설정 오류: {exc}", file=sys.stderr)
         return 2
+    if command != "mark-clean" and (devices or dry_run):
+        print(f"기기 ID와 --dry-run은 mark-clean에서만 씁니다 ({command}는 받지 않음)", file=sys.stderr)
+        return 2
     ls = make_client(settings)
     try:
         if command == "setup":
