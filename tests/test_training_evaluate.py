@@ -93,6 +93,8 @@ def test_evaluate_명령은_기기_면_표와_JSON을_남긴다(tmp_path, capsys
     assert saved["face"]["accuracy"] == 1.0
     assert saved["weights"] == str(data / "best.pt") and len(saved["weights_sha256"]) == 64
     assert saved["model_version"] is None
+    # 같은 파일로 다시 돌리면 덮어쓰지 않고 멈춘다
+    assert training_cli.run_evaluate(args, predict=fake_predict) == 2
 
 
 def test_evaluate는_가중치가_없거나_설정이_틀리면_실패한다(tmp_path, capsys):

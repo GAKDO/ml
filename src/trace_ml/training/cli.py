@@ -101,6 +101,10 @@ def run_evaluate(args: argparse.Namespace, predict=None) -> int:
     if not 0 < args.conf < 1 or args.min_photos < 1:
         print("설정 오류: --conf는 0과 1 사이, --min-photos는 1 이상", file=sys.stderr)
         return 2
+    if args.out and args.out.exists():
+        # 긴 추론 뒤에 이전 결과(다른 가중치의 점수)를 덮어쓰지 않도록 먼저 멈춘다
+        print(f"설정 오류: 결과 파일이 이미 있음(덮어쓰지 않음): {args.out}", file=sys.stderr)
+        return 2
     try:
         kwargs = {"predict": predict} if predict else {}
         report = evaluate_fn(args.weights, args.data, split=args.split, conf=args.conf,
