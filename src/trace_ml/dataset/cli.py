@@ -81,7 +81,8 @@ def _run(args: argparse.Namespace, deps: Deps) -> int:
         for v in reg.versions():
             imgs = v.counts.get("images", {})
             print(f"{v.version}  {v.built_at:%Y-%m-%d %H:%M}  {v.builder_commit[:8]}  "
-                  f"train {imgs.get('train', 0)} · val {imgs.get('val', 0)} · test {imgs.get('test', 0)}")
+                  f"train {imgs.get('train', 0)} · val {imgs.get('val', 0)} · test {imgs.get('test', 0)}"
+                  f" · 폴리곤 {_instances(v.counts)}")
         return 0
     if args.command == "device":
         known = reg.devices()
@@ -106,6 +107,15 @@ def _run(args: argparse.Namespace, deps: Deps) -> int:
     imgs = result.counts["images"]
     print(f"{result.version} 만듦: train {imgs['train']} · val {imgs['val']} · test {imgs['test']}"
           f" · manifest {result.manifest_key}")
+    # 라벨을 고친 뒤 빌드했을 때 Label Studio 저장 수와 맞는지 바로 대조할 수 있게 클래스별 폴리곤 수를 보인다
+    background = sum((result.counts.get("background") or {}).values())
+    print(f"폴리곤 {_instances(result.counts)} · 흠집 없는 사진 {background}")
     for d in result.new_devices:
         print(f"새 기기 자동 배정: {d.code} → {d.split} (기종은 dataset device add {d.code} --model ...로 적기)")
     return 0
+
+
+def _instances(counts: dict) -> str:
+    """manifest counts의 클래스별 폴리곤 수를 'dent 541 · scratch 187' 꼴로(0개 클래스는 뺌)."""
+    inst = counts.get("instances") or {}
+    return " · ".join(f"{k} {v}" for k, v in inst.items() if v) or "없음"
