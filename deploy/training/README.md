@@ -213,14 +213,28 @@ trace-ml evaluate ... --min-photos 2     # 한 장에만 잡힌 먼지·반사�
 
 ## 6-2. 과적합할 때 (데이터가 적을 때)
 
-v001은 2에포크가 가장 좋았고 그 뒤로 val이 흔들렸습니다. 사전학습 특징을 지키며 천천히 맞춥니다.
+부스 학습 데이터는 같은 기종 12대뿐이라 몇 에포크 만에 외웁니다. 11/7 v002 실험(검증 v002-tile640, conf 0.25)에서 확인한 것:
+
+| 실행 | 기기 면 | 사진 재현율 | 메모 |
+| --- | --- | --- | --- |
+| v001 best.pt(2에포크) | 6/6 | 0.574 | 지금 대회 모델 |
+| v002 기본 설정 best.pt(2에포크) | 6/6 | 0.511 | |
+| v002 `--freeze 10 --lr0 0.0005` | 6/6 | 0.319 | 모든 자국을 scratch로 부름 |
+| v002 `--lr0 0.0002` best.pt(1에포크) | 5/6 | 0.021 | 덜 배움 |
+| v001·v002 last.pt(100에포크) | 3/6·4/6 | 0.32·0.28 | 깨끗한 면 오탐 |
+| 사전학습 가중치 그대로 | 2/6 | 0.894 | 깨끗한 면까지 모두 오탐 |
+
+- `--freeze`는 쓰지 않습니다(선박 도장 특징이 남아 dent를 scratch로 부름).
+- 부스 학습은 깨끗한 알루미늄을 배우는 데 꼭 필요하지만, 2에포크를 넘기면 학습 사진을 외웁니다. best.pt가 2에포크를 고르는 건 맞는 선택입니다.
+- 외우기 어렵게 증강을 세게 거는 것은 `--set`으로 합니다(ultralytics train 인자를 그대로 넘김, 여러 번 가능, run.json `trainArgs`에 남음).
 
 ```powershell
-trace-ml train v002 --base D:\trace\pretrain\aihub\runs\pretrain\weights\best.pt --model-name yolo11m-aihub --freeze 10 --lr0 0.0005 --cos-lr --patience 30 --epochs 60 --cache D:\trace\cache
+trace-ml train v002 --base D:\trace\pretrain\aihub\runs\pretrain\weights\best.pt --model-name yolo11m-aihub-aug --epochs 40 --patience 15 --cache D:\trace\cache --set degrees=15 --set flipud=0.5 --set scale=0.7 --set hsv_v=0.6 --set mixup=0.15 --set copy_paste=0.3
 ```
 
-- `--freeze 10`: 백본을 얼림. `--lr0`: 주면 AdamW로 고정(optimizer auto는 lr0를 무시). `--model-name`: model.json `modelVersion` 앞부분(기본은 --base 파일 이름이라 `best-…`가 됨). 같은 이름으로 다시 학습해도 구분되도록 실행 시각이 들어갑니다(예: `yolo11m-aihub-v002-20261108T120000Z-trt-fp16`).
-- 쓴 옵션은 run.json `trainArgs`에 남습니다.
+- `--set`으로 `data`·`epochs`·`imgsz`·`batch`·`single_cls` 등 학습 코드가 정하는 값은 바꿀 수 없고, `freeze`·`lr0`·`optimizer`·`patience`·`cos_lr`은 전용 옵션을 씁니다.
+- `--model-name`: model.json `modelVersion` 앞부분(기본은 --base 파일 이름이라 `best-…`가 됨). 같은 이름으로 다시 학습해도 구분되도록 실행 시각이 들어갑니다(예: `yolo11m-aihub-v002-20261108T120000Z-trt-fp16`).
+- 고르는 기준은 mAP가 아니라 6-1 `evaluate`입니다. v001보다 사진 재현율이 높고, conf 0.25~0.40에서 기기 면을 모두 맞혀야 바꿉니다.
 
 ## 7. 눈으로 확인
 

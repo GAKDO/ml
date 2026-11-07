@@ -39,6 +39,8 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     t.add_argument("--patience", type=int, help="val이 좋아지지 않으면 이만큼 뒤에 멈춘다(기본 100)")
     t.add_argument("--cos-lr", action="store_true", help="코사인 학습률 감소")
     t.add_argument("--model-name", help="model.json modelVersion 앞부분(기본: --base 파일 이름). 예: yolo11m-aihub")
+    t.add_argument("--set", action="append", default=[], metavar="KEY=VALUE", dest="overrides",
+                   help="ultralytics train 인자를 그대로 넘긴다(여러 번 가능). 예: --set degrees=10 --set mixup=0.1")
     e = sub.add_parser("evaluate", help="기기 면 판정(문제 있음/없음)이 라벨과 맞는지 센다. MinIO·DB 없이 돈다")
     e.add_argument("--weights", type=Path, required=True, help="best.pt")
     e.add_argument("--data", type=Path, required=True, help="타일 데이터셋 폴더(예: D:\\trace\\cache\\datasets\\v001-tile640)")
@@ -91,7 +93,49 @@ def train_extra(args: argparse.Namespace) -> dict[str, object]:
         optimizer = optimizer if optimizer not in (None, "auto") else "AdamW"
     if optimizer:
         extra["optimizer"] = optimizer
+    extra.update(parse_overrides(getattr(args, "overrides", None) or []))
     return extra
+
+
+# 학습 코드가 직접 정하는 인자(바꾸면 기록·타일·클래스 이름이 어긋남)와 전용 옵션이 있는 인자
+# resume는 --base 체크포인트의 옛 데이터셋으로 이어 학습해 기록과 어긋난다
+_RESERVED = {"data", "model", "epochs", "imgsz", "batch", "project", "name", "exist_ok", "single_cls", "classes",
+             "resume"}
+_DEDICATED = {"freeze": "--freeze", "lr0": "--lr0", "optimizer": "--optimizer", "patience": "--patience",
+              "cos_lr": "--cos-lr"}
+
+
+def _value(text: str) -> object:
+    low = text.lower()
+    if low in ("true", "false"):
+        return low == "true"
+    for cast in (int, float):
+        try:
+            return cast(text)
+        except ValueError:
+            pass
+    return text
+
+
+def parse_overrides(items: list[str]) -> dict[str, object]:
+    """`--set KEY=VALUE` 목록을 ultralytics 인자 dict로. 숫자·true/false는 그 타입으로 바꾼다."""
+    out: dict[str, object] = {}
+    for item in items:
+        key, sep, raw = item.partition("=")
+        key = key.strip()
+        if not sep or not key or not raw.strip():
+            raise ConfigError(f"--set은 KEY=VALUE 형식: {item!r}")
+        if key in _RESERVED:
+            raise ConfigError(f"--set {key}는 학습 코드가 정하는 값이라 바꿀 수 없음")
+        value = _value(raw.strip())
+        if key == "save" and value is False:
+            raise ConfigError("--set save=false는 조기 종료 때 가중치가 남지 않아 기록할 수 없음")
+        if key in _DEDICATED:
+            raise ConfigError(f"--set {key} 대신 {_DEDICATED[key]}를 쓰세요")
+        if key in out:
+            raise ConfigError(f"--set {key}를 두 번 줌")
+        out[key] = value
+    return out
 
 
 def run_evaluate(args: argparse.Namespace, predict=None) -> int:

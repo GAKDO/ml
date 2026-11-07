@@ -132,6 +132,36 @@ def test_과적합_옵션은_주어진_것만_ultralytics에_넘기고_lr0를_�
     assert model["modelVersion"] == f"yolo11m-aihub-v001-{run_name}-trt-fp16"
 
 
+def test_set으로_준_증강_인자는_타입을_살려_ultralytics에_넘기고_trainArgs에_남는다(tmp_path):
+    w = built()
+    trainer = FakeTrainer()
+    deps = Deps({"MINIO_ENDPOINT": "http://minio.test", "MINIO_ACCESS_KEY": "ak", "MINIO_SECRET_KEY": "sk"},
+                registry=lambda: w.registry, store=lambda: w.store, trainer=trainer)
+    argv = ["train", "v001", "--epochs", "1", "--tile", "0", "--cache", str(tmp_path), "--patience", "15",
+            "--set", "degrees=10", "--set", "mixup=0.15", "--set", "save_period=1", "--set", "amp=false",
+            "--set", "auto_augment=augmix"]
+    assert main(argv, deps=deps) == 0
+    assert trainer.specs[0].extra == {"patience": 15, "degrees": 10, "mixup": 0.15, "save_period": 1,
+                                      "amp": False, "auto_augment": "augmix"}
+    run_doc = json.loads(w.store.get(SETTINGS.models_bucket, w.registry.runs()[0].model_key.replace(
+        "best.pt", "run.json")))
+    assert run_doc["trainArgs"]["mixup"] == 0.15
+
+
+@pytest.mark.parametrize("bad", ["degrees", "degrees=", "epochs=5", "single_cls=true", "lr0=0.001",
+                                 "resume=true", "save=false",
+                                 "mixup=0.1 --set mixup=0.2"])
+def test_set이_형식이_틀리거나_정해진_값을_바꾸려_하면_학습하지_않고_2를_돌려준다(tmp_path, bad):
+    w = built()
+    trainer = FakeTrainer()
+    deps = Deps({"MINIO_ENDPOINT": "http://minio.test", "MINIO_ACCESS_KEY": "ak", "MINIO_SECRET_KEY": "sk"},
+                registry=lambda: w.registry, store=lambda: w.store, trainer=trainer)
+    sets = [x for part in bad.split(" --set ") for x in ("--set", part)]
+    argv = ["train", "v001", "--epochs", "1", "--tile", "0", "--cache", str(tmp_path), *sets]
+    assert main(argv, deps=deps) == 2
+    assert trainer.specs == []
+
+
 def test_modelVersion은_실행마다_다르고_inspect_worker_접미사를_붙여도_64자를_넘지_않는다():
     a = model_version("yolo11m-aihub", "v002", "20261108T120000Z")
     b = model_version("yolo11m-aihub", "v002", "20261108T150000Z")
