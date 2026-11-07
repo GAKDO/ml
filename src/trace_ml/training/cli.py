@@ -98,7 +98,9 @@ def train_extra(args: argparse.Namespace) -> dict[str, object]:
 
 
 # 학습 코드가 직접 정하는 인자(바꾸면 기록·타일·클래스 이름이 어긋남)와 전용 옵션이 있는 인자
-_RESERVED = {"data", "model", "epochs", "imgsz", "batch", "project", "name", "exist_ok", "single_cls", "classes"}
+# resume는 --base 체크포인트의 옛 데이터셋으로 이어 학습해 기록과 어긋난다
+_RESERVED = {"data", "model", "epochs", "imgsz", "batch", "project", "name", "exist_ok", "single_cls", "classes",
+             "resume"}
 _DEDICATED = {"freeze": "--freeze", "lr0": "--lr0", "optimizer": "--optimizer", "patience": "--patience",
               "cos_lr": "--cos-lr"}
 
@@ -125,11 +127,14 @@ def parse_overrides(items: list[str]) -> dict[str, object]:
             raise ConfigError(f"--set은 KEY=VALUE 형식: {item!r}")
         if key in _RESERVED:
             raise ConfigError(f"--set {key}는 학습 코드가 정하는 값이라 바꿀 수 없음")
+        value = _value(raw.strip())
+        if key == "save" and value is False:
+            raise ConfigError("--set save=false는 조기 종료 때 가중치가 남지 않아 기록할 수 없음")
         if key in _DEDICATED:
             raise ConfigError(f"--set {key} 대신 {_DEDICATED[key]}를 쓰세요")
         if key in out:
             raise ConfigError(f"--set {key}를 두 번 줌")
-        out[key] = _value(raw.strip())
+        out[key] = value
     return out
 
 

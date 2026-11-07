@@ -149,6 +149,7 @@ def test_set으로_준_증강_인자는_타입을_살려_ultralytics에_넘기�
 
 
 @pytest.mark.parametrize("bad", ["degrees", "degrees=", "epochs=5", "single_cls=true", "lr0=0.001",
+                                 "resume=true", "save=false",
                                  "mixup=0.1 --set mixup=0.2"])
 def test_set이_형식이_틀리거나_정해진_값을_바꾸려_하면_학습하지_않고_2를_돌려준다(tmp_path, bad):
     w = built()
