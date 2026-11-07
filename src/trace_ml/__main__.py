@@ -10,6 +10,7 @@
     trace-ml dataset build|list   제출된 주석으로 데이터셋 버전을 만든다(덮어쓰기 없음)
     trace-ml train v001           데이터셋 버전으로 학습, 가중치·ONNX·지표를 버전과 함께 기록
     trace-ml models list          모델 → 데이터셋 버전
+    trace-ml evaluate --weights best.pt --data <타일 폴더>   기기 면 판정(문제 있음/없음) 정확도
     trace-ml pretrain scan|build|train   AI Hub 등 공개 데이터로 사전 학습(부스 학습의 --base)
     trace-ml rehearse             사진 없이 합성 사진으로 학습→ONNX→model.json 끝까지 시험(로컬만)
     trace-ml inspect worker       inspect-worker(ML2): 정합·펼친 면·텍스처 → trace.inspect.completed
@@ -124,6 +125,8 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
         return pretrain_cli.run(args)
     if args.tool == "rehearse":
         return training_cli.run_rehearse(args)
+    if args.tool == "evaluate":
+        return training_cli.run_evaluate(args)
     deps = deps or dataset_cli.Deps(environ)
     if args.tool in ("train", "models"):
         return training_cli.run(args, deps)
