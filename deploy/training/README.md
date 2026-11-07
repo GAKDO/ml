@@ -200,6 +200,28 @@ trace-ml train v001 --epochs 100 --cache D:\trace\cache
 trace-ml models list             # 데이터셋 버전 · mask mAP50
 ```
 
+## 6-1. 기기 판정 정확도 (경진대회 지표)
+
+mAP는 폴리곤 모양·클래스까지 따져서 흠집이 적은 부스 데이터에서는 크게 흔들립니다. 부스가 실제로 내는 판정(이 면에 흠집이 있나)과 같은 단위로 맞힌 수를 셉니다.
+
+```powershell
+trace-ml evaluate --weights D:\trace\cache\runs\<실행>\weights\best.pt --data D:\trace\cache\datasets\v001-tile640 --out D:\trace\eval-v001.json
+trace-ml evaluate ... --min-photos 2     # 한 장에만 잡힌 먼지·반사는 '문제 없음'
+```
+
+`--model-version <model.json의 modelVersion>`을 주면 결과 JSON에 함께 남습니다(가중치 경로·SHA-256은 항상 남음). 기기 면(예: MB13_TOP)마다 라벨·판정·사진 수가 나오고, 사진·기기 면 단위 정확도·정밀도·재현율과 conf 문턱별 표가 나옵니다.
+
+## 6-2. 과적합할 때 (데이터가 적을 때)
+
+v001은 2에포크가 가장 좋았고 그 뒤로 val이 흔들렸습니다. 사전학습 특징을 지키며 천천히 맞춥니다.
+
+```powershell
+trace-ml train v002 --base D:\trace\pretrain\aihub\runs\pretrain\weights\best.pt --model-name yolo11m-aihub --freeze 10 --lr0 0.0005 --cos-lr --patience 30 --epochs 60 --cache D:\trace\cache
+```
+
+- `--freeze 10`: 백본을 얼림. `--lr0`: 주면 AdamW로 고정(optimizer auto는 lr0를 무시). `--model-name`: model.json `modelVersion` 앞부분(기본은 --base 파일 이름이라 `best-…`가 됨). 같은 이름으로 다시 학습해도 구분되도록 실행 시각이 들어갑니다(예: `yolo11m-aihub-v002-20261108T120000Z-trt-fp16`).
+- 쓴 옵션은 run.json `trainArgs`에 남습니다.
+
 ## 7. 눈으로 확인
 
 ```powershell
@@ -210,7 +232,7 @@ yolo segment predict model=D:\trace\cache\runs\<실행>\weights\best.pt source=D
 
 ## 8. Jetson으로
 
-`best.onnx`는 입력 1×3×640×640 고정, opset 17, FP32입니다. jetson2가 trace-jetson 키(trace-models 읽기 전용)로 `best.onnx`(또는 `best.pt`)와 `model.json`을 받아 TensorRT FP16 엔진을 직접 빌드합니다. `model.json`은 엔진 옆에 그대로 둡니다(`modelVersion` = `yolo11s-seg-v001-trt-fp16`).
+`best.onnx`는 입력 1×3×640×640 고정, opset 17, FP32입니다. jetson2가 trace-jetson 키(trace-models 읽기 전용)로 `best.onnx`(또는 `best.pt`)와 `model.json`을 받아 TensorRT FP16 엔진을 직접 빌드합니다. `model.json`은 엔진 옆에 그대로 둡니다(`modelVersion` = `yolo11s-seg-v001-<실행>-trt-fp16`, 실행마다 다름).
 
 ## 막히면
 

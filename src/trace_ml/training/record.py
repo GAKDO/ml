@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from ..registry import Registry, RegistryError, TrainingRun
 from ..settings import MinioSettings
@@ -23,10 +24,21 @@ class RunResult:
     run: TrainingRun
 
 
+# 부스·inspect-worker가 결과에 그대로 싣는 값(계약 최대 64자). worker가 "+contour-v1"(11자)을 붙이므로 그만큼 남긴다
+_MODEL_VERSION_MAX = 64 - len("+contour-v1")
+
+
+def model_version(name: str, version: str, run_name: str) -> str:
+    """같은 이름·데이터셋으로 다시 학습해도 실행마다 다른 값이 되도록 실행 시각을 넣는다. 길면 이름을 줄인다."""
+    tail = f"-{version}-{run_name}-trt-fp16"
+    return name[:max(1, _MODEL_VERSION_MAX - len(tail))] + tail
+
+
 def train(store: Store, registry: Registry, settings: MinioSettings, version: str, *, base_weights: str,
           epochs: int, imgsz: int, cache_dir: Path, trainer: Callable[[TrainSpec], TrainOutput] = train_yolo,
           now: Callable[[], datetime] = lambda: datetime.now(UTC), tile: int = 0, overlap: float = 0.2,
-          background_ratio: float = 1.0, batch: int = -1) -> RunResult:
+          background_ratio: float = 1.0, batch: int = -1, extra: dict[str, Any] | None = None,
+          model_name: str | None = None) -> RunResult:
     """tile > 0이면 부스(BO2)처럼 원본을 tile px 타일로 잘라 학습하고, imgsz·ONNX도 tile 크기로 맞춘다."""
     found = [v for v in registry.versions() if v.version == version]
     if not found:
@@ -46,7 +58,8 @@ def train(store: Store, registry: Registry, settings: MinioSettings, version: st
             raise RegistryError(f"{version}에 val 사진이 없음: dataset device add <기기> --split VAL 뒤 새 버전을 만드세요")
     started = now().replace(microsecond=0)
     run_name = started.strftime("%Y%m%dT%H%M%SZ")
-    out = trainer(TrainSpec(data_yaml, base_weights, epochs, imgsz, cache_dir / "runs", run_name, has_test, batch))
+    out = trainer(TrainSpec(data_yaml, base_weights, epochs, imgsz, cache_dir / "runs", run_name, has_test, batch,
+                              dict(extra or {})))
 
     prefix = f"{version}/{run_name}/"
     # 모델 파일만 따로 받아 가도 어느 데이터로 학습했는지 알 수 있게 객체 메타데이터에도 적는다
@@ -54,13 +67,13 @@ def train(store: Store, registry: Registry, settings: MinioSettings, version: st
     run_doc = {
         "schema": "trace.training-run.v1", "datasetVersion": version, "manifestKey": ds.manifest_key,
         "manifestSha256": fetched.manifest_sha256, "builderCommit": ds.builder_commit,
-        "baseWeights": base_weights, "startedAt": started.isoformat().replace("+00:00", "Z"),
+        "baseWeights": base_weights, "modelName": model_name, "startedAt": started.isoformat().replace("+00:00", "Z"),
         "finishedAt": now().replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-        "imgsz": imgsz, "tiling": tiling, "metrics": out.metrics,
+        "imgsz": imgsz, "tiling": tiling, "trainArgs": dict(extra or {}), "metrics": out.metrics,
         "files": {"weights": "best.pt", "onnx": "best.onnx", "modelInfo": "model.json"},
     }
     # Jetson(BO2)이 엔진 옆에 그대로 두는 파일. 엔진은 이 ONNX로 jetson2에서 FP16으로 만든다
-    model_info = {"modelVersion": f"{Path(base_weights).stem}-{version}-trt-fp16",
+    model_info = {"modelVersion": model_version(model_name or Path(base_weights).stem, version, run_name),
                   "classes": list(fetched.manifest["classes"]), "datasetVersion": version, "run": run_name,
                   "imgsz": imgsz, "tileSize": tile or None, "overlap": overlap if tile else None}
     files = [

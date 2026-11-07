@@ -81,7 +81,7 @@ def test_model_json은_부스가_읽는_modelVersion과_codes_yaml_클래스를_
     w = _world([(10, 10), (20, 10), (20, 20), (10, 20)])
     result = _train(w, tmp_path, FakeTrainer())
     info = json.loads(w.s3.objects[("trace-models", result.prefix + "model.json")][0])
-    assert info["modelVersion"] == "yolo11s-seg-v001-trt-fp16"
+    assert info["modelVersion"] == f"yolo11s-seg-v001-{result.run_name}-trt-fp16"
     assert info["classes"] == ["scratch", "dent", "crack", "stain"]
     assert (info["imgsz"], info["tileSize"], info["overlap"]) == (640, 640, 0.2)
     run = json.loads(w.s3.objects[("trace-models", result.prefix + "run.json")][0])
