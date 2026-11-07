@@ -116,7 +116,9 @@ def test_과적합_옵션은_주어진_것만_ultralytics에_넘기고_lr0를_�
                                       "optimizer": "AdamW"}
     run_doc = json.loads(w.store.get(SETTINGS.models_bucket, w.registry.runs()[0].model_key.replace(
         "best.pt", "run.json")))
-    assert run_doc["trainArgs"]["freeze"] == 10
+    # --model-name은 ultralytics 인자가 아니므로 trainArgs가 아니라 따로 남는다(modelVersion에서 잘려도 원래 이름 보존)
+    assert run_doc["trainArgs"]["freeze"] == 10 and run_doc["modelName"] == "yolo11m-aihub"
+    assert "model_name" not in run_doc["trainArgs"]
     model = json.loads(w.store.get(SETTINGS.models_bucket, w.registry.runs()[0].model_key.replace(
         "best.pt", "model.json")))
     run_name = w.registry.runs()[0].model_key.split("/")[1]

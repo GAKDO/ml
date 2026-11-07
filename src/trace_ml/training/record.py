@@ -67,7 +67,7 @@ def train(store: Store, registry: Registry, settings: MinioSettings, version: st
     run_doc = {
         "schema": "trace.training-run.v1", "datasetVersion": version, "manifestKey": ds.manifest_key,
         "manifestSha256": fetched.manifest_sha256, "builderCommit": ds.builder_commit,
-        "baseWeights": base_weights, "startedAt": started.isoformat().replace("+00:00", "Z"),
+        "baseWeights": base_weights, "modelName": model_name, "startedAt": started.isoformat().replace("+00:00", "Z"),
         "finishedAt": now().replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "imgsz": imgsz, "tiling": tiling, "trainArgs": dict(extra or {}), "metrics": out.metrics,
         "files": {"weights": "best.pt", "onnx": "best.onnx", "modelInfo": "model.json"},
