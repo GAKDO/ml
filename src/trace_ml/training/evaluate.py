@@ -179,9 +179,14 @@ def run_evaluate(weights: Path, data_dir: Path, *, split: str = "val", conf: flo
     if not weights.is_file():
         raise EvaluateError(f"가중치가 없음: {weights}")
     truth = read_truth(labels_dir)
-    images = sorted(p for p in images_dir.glob("*.jpg") if p.stem in truth)
-    if len(images) != len(truth):
-        raise EvaluateError(f"사진 {len(images)}장 · 라벨 {len(truth)}개로 수가 다름: {images_dir}")
+    # 라벨 없는 사진을 조용히 빼면 판정 수가 줄어 지표가 틀어지므로, 이름이 하나라도 어긋나면 멈춘다
+    images = sorted(images_dir.glob("*.jpg"))
+    stems = {p.stem for p in images}
+    if stems != set(truth):
+        no_label, no_image = sorted(stems - set(truth)), sorted(set(truth) - stems)
+        example = (no_label or no_image)[0]
+        raise EvaluateError(f"사진과 라벨 이름이 다름(라벨 없는 사진 {len(no_label)}장 · 사진 없는 라벨 "
+                            f"{len(no_image)}개, 예: {example}): {images_dir}")
     preds = predict(weights, images, min(0.1, conf))
     report = evaluate(truth, preds, split=split, conf=conf, min_photos=min_photos)
     return replace(report, model_version=model_version, weights=str(weights),

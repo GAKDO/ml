@@ -104,6 +104,13 @@ def test_evaluate는_가중치가_없거나_설정이_틀리면_실패한다(tmp
     assert main(["evaluate", "--weights", str(data / "best.pt"), "--data", str(data), "--conf", "1.5"]) == 2
 
 
+def test_라벨_없는_사진이_있으면_평가하지_않고_멈춘다(tmp_path):
+    data = _dataset(tmp_path)
+    (data / "labels" / "val" / "MB04_BOT_L1_CAM1_01_x0_y0.txt").unlink()
+    with pytest.raises(EvaluateError, match="라벨 없는 사진 1장"):
+        run_evaluate(data / "best.pt", data, predict=lambda *a: {})
+
+
 def test_과적합_옵션은_주어진_것만_ultralytics에_넘기고_lr0를_주면_AdamW로_고정한다(tmp_path):
     w = built()
     trainer = FakeTrainer()
