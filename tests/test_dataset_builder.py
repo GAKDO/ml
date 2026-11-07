@@ -216,6 +216,8 @@ def test_명령줄_device_add_build_list가_돌고_분할_변경_거절은_1로_
     assert main(["dataset", "device", "add", "REG05"], deps=deps) == 1
     out = capsys.readouterr()
     assert "v001 만듦: train 0 · val 2 · test 0" in out.out
+    # 라벨 수정 뒤 Label Studio 저장 수와 대조할 클래스별 폴리곤 수
+    assert "폴리곤 " in out.out and "흠집 없는 사진 " in out.out
     assert "REG01  VAL    MacBook Air" in out.out
     assert "분할을 바꿀 수 없음" in out.err
     assert "sk" not in out.out + out.err.replace("REG", "")
