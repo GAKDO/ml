@@ -24,6 +24,16 @@ class RunResult:
     run: TrainingRun
 
 
+# 부스·inspect-worker가 결과에 그대로 싣는 값(계약 최대 64자). worker가 "+contour-v1"(11자)을 붙이므로 그만큼 남긴다
+_MODEL_VERSION_MAX = 64 - len("+contour-v1")
+
+
+def model_version(name: str, version: str, run_name: str) -> str:
+    """같은 이름·데이터셋으로 다시 학습해도 실행마다 다른 값이 되도록 실행 시각을 넣는다. 길면 이름을 줄인다."""
+    tail = f"-{version}-{run_name}-trt-fp16"
+    return name[:max(1, _MODEL_VERSION_MAX - len(tail))] + tail
+
+
 def train(store: Store, registry: Registry, settings: MinioSettings, version: str, *, base_weights: str,
           epochs: int, imgsz: int, cache_dir: Path, trainer: Callable[[TrainSpec], TrainOutput] = train_yolo,
           now: Callable[[], datetime] = lambda: datetime.now(UTC), tile: int = 0, overlap: float = 0.2,
@@ -63,7 +73,7 @@ def train(store: Store, registry: Registry, settings: MinioSettings, version: st
         "files": {"weights": "best.pt", "onnx": "best.onnx", "modelInfo": "model.json"},
     }
     # Jetson(BO2)이 엔진 옆에 그대로 두는 파일. 엔진은 이 ONNX로 jetson2에서 FP16으로 만든다
-    model_info = {"modelVersion": f"{model_name or Path(base_weights).stem}-{version}-trt-fp16",
+    model_info = {"modelVersion": model_version(model_name or Path(base_weights).stem, version, run_name),
                   "classes": list(fetched.manifest["classes"]), "datasetVersion": version, "run": run_name,
                   "imgsz": imgsz, "tileSize": tile or None, "overlap": overlap if tile else None}
     files = [

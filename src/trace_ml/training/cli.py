@@ -46,6 +46,7 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     e.add_argument("--conf", type=float, default=0.25, help="검출로 셀 최소 신뢰도")
     e.add_argument("--min-photos", type=int, default=1,
                    help="기기 면을 '문제 있음'으로 볼 최소 사진 수. 2 이상이면 한 장에만 잡힌 먼지·반사를 거른다")
+    e.add_argument("--model-version", help="결과에 남길 model.json modelVersion(가중치 경로·해시는 항상 남김)")
     e.add_argument("--out", type=Path, help="결과 JSON을 쓸 파일")
     m = sub.add_parser("models", help="학습 기록")
     m.add_argument("command", choices=["list"])
@@ -103,10 +104,12 @@ def run_evaluate(args: argparse.Namespace, predict=None) -> int:
     try:
         kwargs = {"predict": predict} if predict else {}
         report = evaluate_fn(args.weights, args.data, split=args.split, conf=args.conf,
-                             min_photos=args.min_photos, **kwargs)
+                             min_photos=args.min_photos, model_version=getattr(args, "model_version", None),
+                             **kwargs)
     except (EvaluateError, RuntimeError, OSError) as exc:
         print(f"평가 실패: {exc}", file=sys.stderr)
         return 1
+    print(f"모델 {report.model_version or '-'} · {report.weights} (sha256 {report.weights_sha256[:12]})")
     print(f"{args.split} · conf {args.conf} · 기기 면은 흠집 사진 {args.min_photos}장 이상이면 '문제 있음'")
     print("기기 면           라벨  판정  사진(라벨/검출/전체)  검출 클래스")
     for r in report.faces:

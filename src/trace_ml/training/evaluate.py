@@ -6,10 +6,11 @@ mAP는 폴리곤 모양·클래스까지 따지므로 흠집이 적은 부스 �
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections.abc import Callable, Iterable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +71,10 @@ class Report:
     face: dict[str, Any]
     faces: list[FaceResult]
     sweep: list[dict[str, Any]]
+    # 점수와 모델을 잇는 값. 가중치 경로·해시는 항상, model_version은 --model-version을 줄 때만
+    model_version: str | None = None
+    weights: str = ""
+    weights_sha256: str = ""
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False, indent=2)
@@ -168,7 +173,8 @@ def predict_yolo(weights: Path, images: list[Path], conf: float) -> dict[str, li
 
 
 def run_evaluate(weights: Path, data_dir: Path, *, split: str = "val", conf: float = 0.25, min_photos: int = 1,
-                 predict: Predict = predict_yolo) -> Report:
+                 predict: Predict = predict_yolo, model_version: str | None = None) -> Report:
+    """data_dir(타일 데이터셋)의 split을 가중치로 검출해 판정을 센다. 결과에 가중치 경로·SHA-256을 남긴다."""
     images_dir, labels_dir = data_dir / "images" / split, data_dir / "labels" / split
     if not weights.is_file():
         raise EvaluateError(f"가중치가 없음: {weights}")
@@ -177,4 +183,6 @@ def run_evaluate(weights: Path, data_dir: Path, *, split: str = "val", conf: flo
     if len(images) != len(truth):
         raise EvaluateError(f"사진 {len(images)}장 · 라벨 {len(truth)}개로 수가 다름: {images_dir}")
     preds = predict(weights, images, min(0.1, conf))
-    return evaluate(truth, preds, split=split, conf=conf, min_photos=min_photos)
+    report = evaluate(truth, preds, split=split, conf=conf, min_photos=min_photos)
+    return replace(report, model_version=model_version, weights=str(weights),
+                   weights_sha256=hashlib.sha256(weights.read_bytes()).hexdigest())

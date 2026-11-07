@@ -13,7 +13,7 @@ from trace_ml.__main__ import main
 from trace_ml.dataset.cli import Deps
 from trace_ml.training import cli as training_cli
 from trace_ml.training.evaluate import EvaluateError, evaluate, judge, parse_tile, run_evaluate
-from trace_ml.training.record import train
+from trace_ml.training.record import model_version, train
 
 TRUTH = {
     # MB13 윗면: 사진 2장 중 1장에 흠집 라벨
@@ -89,7 +89,10 @@ def test_evaluate_명령은_기기_면_표와_JSON을_남긴다(tmp_path, capsys
     assert seen == {"weights": data / "best.pt", "n": len(TRUTH), "conf": 0.1}
     text = capsys.readouterr().out
     assert "MB04_BOT" in text and "기기 면: 정확도 1.0" in text
-    assert json.loads(out.read_text(encoding="utf-8"))["face"]["accuracy"] == 1.0
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["face"]["accuracy"] == 1.0
+    assert saved["weights"] == str(data / "best.pt") and len(saved["weights_sha256"]) == 64
+    assert saved["model_version"] is None
 
 
 def test_evaluate는_가중치가_없거나_설정이_틀리면_실패한다(tmp_path, capsys):
@@ -114,7 +117,16 @@ def test_과적합_옵션은_주어진_것만_ultralytics에_넘기고_lr0를_�
     assert run_doc["trainArgs"]["freeze"] == 10
     model = json.loads(w.store.get(SETTINGS.models_bucket, w.registry.runs()[0].model_key.replace(
         "best.pt", "model.json")))
-    assert model["modelVersion"] == "yolo11m-aihub-v001-trt-fp16"
+    run_name = w.registry.runs()[0].model_key.split("/")[1]
+    assert model["modelVersion"] == f"yolo11m-aihub-v001-{run_name}-trt-fp16"
+
+
+def test_modelVersion은_실행마다_다르고_inspect_worker_접미사를_붙여도_64자를_넘지_않는다():
+    a = model_version("yolo11m-aihub", "v002", "20261108T120000Z")
+    b = model_version("yolo11m-aihub", "v002", "20261108T150000Z")
+    assert a == "yolo11m-aihub-v002-20261108T120000Z-trt-fp16" and a != b
+    long = model_version("x" * 80, "v002", "20261108T120000Z")
+    assert len(long + "+contour-v1") == 64 and long.endswith("-v002-20261108T120000Z-trt-fp16")
 
 
 def test_옵션을_주지_않으면_기존_학습과_같다(tmp_path):
