@@ -10,6 +10,7 @@ import numpy as np
 from .contour import Quad, QuadFailure, find_quad
 
 METHOD_CONTOUR = "CONTOUR"  # codes.yaml inspection.alignment_method
+ALIGN_CONTOUR = "contour"  # 내부 alignMethod(로그용, 계약 필드 아님)
 CORNER_SKIP = 0.08  # 둥근 모서리: 변 길이의 8% 안쪽 꼭짓점 근처는 오차에서 뺀다
 
 
@@ -21,7 +22,9 @@ class Alignment:
     corners: np.ndarray  # 사진 px 꼭짓점(왼쪽 위부터 시계 방향)
     photo_size: tuple[int, int]  # 원본 사진 (가로, 세로)
     partial: bool = False  # 부스 반쪽 사진처럼 면의 일부만 보임
-    method: str = METHOD_CONTOUR
+    method: str = METHOD_CONTOUR  # 이벤트 method(codes.yaml 값만)
+    align_method: str = ALIGN_CONTOUR  # 실제로 쓴 방식(contour·orb·superpoint-lightglue). 로그·내부 값
+    contour: np.ndarray | None = None  # 면 가장자리 윤곽 점(사진 px). 특징점으로 다듬은 뒤 오차를 다시 잴 때 쓴다
 
     def coverage(self) -> np.ndarray:
         """펼친 이미지에서 사진이 실제로 덮은 곳(255). 반쪽 사진을 이어 붙일 때 쓴다."""
@@ -61,7 +64,7 @@ def align_quad(image: np.ndarray, quad: Quad, size: tuple[int, int]) -> Alignmen
     rectified = cv2.warpPerspective(image, homography, size, flags=cv2.INTER_LINEAR)
     return Alignment(homography=homography, error_px=border_error_px(homography, quad.contour, size),
                      rectified=rectified, corners=quad.corners, photo_size=(image.shape[1], image.shape[0]),
-                     partial=quad.partial)
+                     partial=quad.partial, contour=quad.contour)
 
 
 def align_photo(image: np.ndarray, size: tuple[int, int]) -> Alignment | AlignFailure:

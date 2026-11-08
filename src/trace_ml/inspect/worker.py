@@ -1,7 +1,7 @@
 """trace.capture.uploaded 하나를 처리해 trace.inspect.completed 본문을 만든다(브로커와 무관한 핵심).
 
-사진마다: 받기 → SHA-256 대조 → 윤곽 4점 정합 → 펼친 이미지 올리기 → (폰이면) 탐지.
-면마다 오차가 가장 작은 펼친 이미지를 텍스처로 올린다.
+사진마다: 받기 → SHA-256 대조 → 윤곽 4점 정합 → (TRACE_ALIGN=features면) 기준 이미지로 특징점 보정
+→ 펼친 이미지 올리기 → (폰이면) 탐지. 면마다 오차가 가장 작은 펼친 이미지를 텍스처로 올린다.
 """
 
 from __future__ import annotations
@@ -21,11 +21,13 @@ from ..store import Store, StoreError
 from .align import AlignFailure, Alignment, align_photo
 from .detect import Detector, NullDetector, to_standard_defect
 from .faces import FACES, DeviceDims, face_size_px
+from .features import Refiner, reference_key
 
 log = logging.getLogger(__name__)
 
 SCHEMA_VERSION = "1.0"
 ALIGN_VERSION = "contour-v1"
+FEATURES_ALIGN_VERSION = "features-v1"  # TRACE_ALIGN=features(윤곽 + 특징점 보정)
 PUBLIC_ID_LEN = 21
 
 
@@ -144,8 +146,13 @@ class _Done:
 
 
 def process(req: InspectRequest, store: Store, config: WorkerConfig, detector: Detector | None = None,
-            progress: Progress | None = None, now: Callable[[], datetime] | None = None) -> dict[str, Any]:
-    """세트 하나를 처리해 trace.inspect.completed 본문을 돌려준다. 저장소 오류는 StoreError로 올린다(다시 시도)."""
+            progress: Progress | None = None, now: Callable[[], datetime] | None = None,
+            refiner: Refiner | None = None) -> dict[str, Any]:
+    """세트 하나를 처리해 trace.inspect.completed 본문을 돌려준다. 저장소 오류는 StoreError로 올린다(다시 시도).
+
+    refiner가 있으면 대여의 기준 이미지(trace-derived/align-ref/<rentalId>/<면>.png)에 맞춰 정합을 다듬고,
+    기준이 없던 면은 이번 텍스처를 기준으로 남긴다.
+    """
     detector = detector or NullDetector()
     progress = progress or NoProgress()
     dims = req.dims or config.dims  # 기종마다 표준 좌표 크기가 다르다(11/2 민서 결정)
@@ -153,6 +160,7 @@ def process(req: InspectRequest, store: Store, config: WorkerConfig, detector: D
     done: list[_Done] = []
     failed: list[dict[str, str]] = []
     defects: list[dict[str, Any]] = []
+    references: dict[str, np.ndarray | None] = {}
     progress.report(req, "ALIGN", 0, total)
     for index, photo in enumerate(req.photos, start=1):
         body = store.get(config.captures_bucket, photo.object_key)
@@ -170,6 +178,14 @@ def process(req: InspectRequest, store: Store, config: WorkerConfig, detector: D
             failed.append({"photoId": photo.photo_id, "reason": result.reason})
             progress.report(req, "ALIGN", index, total)
             continue
+        if refiner is not None:
+            if photo.face not in references:
+                references[photo.face] = _load_reference(req, photo.face, store, config)
+            reference = references[photo.face]
+            if reference is not None:
+                result = refiner.refine(image, result, reference)
+            log.info("사진 %s(%s) 정합 alignMethod=%s errorPx=%s", photo.photo_id, photo.face, result.align_method,
+                     None if result.error_px is None else round(result.error_px, 3))
         key = f"rectified/{photo.photo_id}.png"
         store.put(config.derived_bucket, key, _encode_png(result.rectified), "image/png")
         done.append(_Done(photo, result, key))
@@ -188,8 +204,11 @@ def process(req: InspectRequest, store: Store, config: WorkerConfig, detector: D
         progress.report(req, "ALIGN", index, total)
 
     texture_keys = _upload_textures(req, done, store, config)
+    if refiner is not None:
+        _save_references(req, texture_keys, references, store, config)
     progress.report(req, "DONE", total, total)
-    model_version = ALIGN_VERSION if not req.need_detection else f"{detector.model_version}+{ALIGN_VERSION}"
+    align_version = FEATURES_ALIGN_VERSION if refiner is not None else ALIGN_VERSION
+    model_version = align_version if not req.need_detection else f"{detector.model_version}+{align_version}"
     clock = now or (lambda: datetime.now(UTC))
     return {
         "schemaVersion": SCHEMA_VERSION,
@@ -210,6 +229,25 @@ def process(req: InspectRequest, store: Store, config: WorkerConfig, detector: D
         "textureKeys": texture_keys,
         "failedPhotos": failed,
     }
+
+
+def _load_reference(req: InspectRequest, face: str, store: Store, config: WorkerConfig) -> np.ndarray | None:
+    key = reference_key(req.rental_id, face)
+    if not store.exists(config.derived_bucket, key):
+        return None
+    image = cv2.imdecode(np.frombuffer(store.get(config.derived_bucket, key), np.uint8), cv2.IMREAD_COLOR)
+    if image is None:
+        log.warning("기준 이미지를 읽지 못해 윤곽 결과만 씀: %s", face)
+    return image
+
+
+def _save_references(req: InspectRequest, texture_keys: dict[str, str], references: dict[str, np.ndarray | None],
+                     store: Store, config: WorkerConfig) -> None:
+    """기준이 없던 면은 이번 텍스처를 대여의 기준으로 남긴다(첫 시점이 기준, 덮어쓰지 않음)."""
+    for face, key in texture_keys.items():
+        if references.get(face) is None:
+            store.put(config.derived_bucket, reference_key(req.rental_id, face),
+                      store.get(config.derived_bucket, key), "image/png")
 
 
 # 텍스처에 먼저 쓰는 조명: 확산광(L1)·실내(ROOM)가 면 색을 고르게 보여 준다. 스침광은 흠집용이라 뒤로
