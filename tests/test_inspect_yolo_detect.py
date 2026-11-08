@@ -96,6 +96,7 @@ def test_ultralytics가_없는_컨테이너는_best_pt만_있으면_탐지를_�
     (tmp_path / "best.pt").write_bytes(b"pt")
     monkeypatch.setattr("trace_ml.inspect.yolo_detect._has_ultralytics", lambda: False)
     assert find_weights({"TRACE_MODEL_DIR": str(tmp_path)}) is None
+    assert isinstance(load_detector({"TRACE_MODEL_DIR": str(tmp_path)}), NullDetector)
     monkeypatch.setattr("trace_ml.inspect.yolo_detect._has_ultralytics", lambda: True)
     assert find_weights({"TRACE_MODEL_DIR": str(tmp_path)}) == tmp_path / "best.pt"
 
