@@ -39,7 +39,7 @@ python -m trace_ml
 1. 학교 서버 `~/gitops/compose`에서 `trace-ml review sql --since 2026-11-08`이 보여 주는 명령을 돌려 `reviews.csv`를 만들고 집 PC로 가져옵니다(DB 포트는 밖에 열지 않음).
 2. 집 PC에서 사진 저장소(gakdo.site Compose MinIO, 버킷 `trace-captures`)에 닿게 SSH 터널을 열고 `CAPTURE_MINIO_ENDPOINT`·`CAPTURE_MINIO_ACCESS_KEY`·`CAPTURE_MINIO_SECRET_KEY`를 env에 둡니다(값은 서버 `.env`, 채팅·Git에 넣지 않음).
 3. `trace-ml review export --rows reviews.csv --out D:\trace\cache\review-<날짜>` → `images|labels/train`, 흠집 아님 자리 `hard/train`, `reviews.jsonl`, `summary.json`.
-4. `trace-ml train <버전> --tile 640 --extra-train D:\trace\cache\review-<날짜>`. 검수분은 train에만 들어가고, 흠집 아님 자리가 걸친 타일은 빈 타일 고르기에서 빠지지 않습니다. `run.json`의 `extraTrain`에 요약 해시가 남습니다.
+4. `trace-ml train <버전> --tile 640 --extra-train D:\trace\cache\review-<날짜>`. 검수분은 train에만 들어가고, 흠집 아님 자리가 걸친 타일은 빈 타일 고르기에서 빠지지 않습니다. `run.json`의 `extraTrain`에 요약 해시가 남습니다. 기기 시리얼이나 자산번호가 데이터셋 VAL·TEST 기기 코드(예: `MB04`)와 같은 사진은 점수가 부풀지 않게 빼고 `extraTrain.excludedHeldOut`에 적으므로, 관리자 화면에서 기기를 등록할 때 자산번호를 학습 기기 코드로 적어 둡니다.
 
 AI가 아예 못 잡은 흠집은 이 사진들에 라벨이 없으므로 val로는 쓰지 않습니다. 평가는 지금처럼 검증 기기 3대로 합니다.
 

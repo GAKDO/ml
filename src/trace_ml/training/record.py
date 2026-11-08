@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ..dataset.review_export import ReviewExportError, read_summary
+from ..dataset.review_export import ReviewExportError, held_out_names, read_summary
 from ..labelstudio.config import ConfigError
 from ..registry import Registry, RegistryError, TrainingRun
 from ..settings import MinioSettings
@@ -62,15 +62,26 @@ def train(store: Store, registry: Registry, settings: MinioSettings, version: st
     fetched = fetch(store, settings, ds, cache_dir / "datasets")
     data_yaml, tiling = fetched.data_yaml, None
     has_test = bool(fetched.manifest["counts"]["images"].get("test"))
-    if extra_train is not None and summary.get("classes") != list(fetched.manifest["classes"]):
-        # 클래스 번호가 다르면 라벨이 다른 흠집으로 읽힌다
-        raise ConfigError(f"검수 내보내기 클래스 {summary.get('classes')}가 {version}과 다름")
+    excluded: frozenset[str] = frozenset()
+    if extra_train is not None:
+        if summary.get("classes") != list(fetched.manifest["classes"]):
+            # 클래스 번호가 다르면 라벨이 다른 흠집으로 읽힌다
+            raise ConfigError(f"검수 내보내기 클래스 {summary.get('classes')}가 {version}과 다름")
+        # VAL·TEST 기기 사진이 train에 들어가면 그 기기로 잰 점수가 부풀려진다. 시리얼·자산번호가 기기 코드와 같으면 뺀다
+        held = {code.upper() for code, split in (fetched.manifest.get("devices") or {}).items()
+                if split in ("VAL", "TEST")}
+        try:
+            excluded = frozenset(held_out_names(extra_train, held))
+        except ReviewExportError as exc:
+            raise ConfigError(str(exc)) from exc
+        extra_doc["excludedHeldOut"] = sorted(excluded)
     if tile:
         names = dict(enumerate(fetched.manifest["classes"]))
         # 검수분을 섞으면 같은 버전의 타일 폴더와 구분한다(섞지 않은 학습이 이 폴더를 다시 쓰지 않게)
         suffix = f"-rv{extra_doc['summarySha256'][:8]}" if extra_doc else ""
         tiled = tile_dataset(fetched.data_yaml.parent, cache_dir / "datasets" / f"{version}-tile{tile}{suffix}", names,
-                             size=tile, overlap=overlap, background_ratio=background_ratio, extra_train=extra_train)
+                             size=tile, overlap=overlap, background_ratio=background_ratio, extra_train=extra_train,
+                             extra_exclude=excluded)
         data_yaml, imgsz = tiled.data_yaml, tile
         has_test = bool(tiled.counts["test"]["tiles"])
         tiling = {"size": tile, "overlap": overlap, "backgroundRatio": background_ratio, "counts": tiled.counts}

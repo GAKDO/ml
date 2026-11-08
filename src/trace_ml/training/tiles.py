@@ -135,19 +135,20 @@ def _keep(name: str) -> str:
     return hashlib.sha256(name.encode()).hexdigest()
 
 
-def _photos(src: Path, split: str, extra_train: Path | None) -> list[tuple[Path, Path, Path | None]]:
-    """(사진, 라벨, 흠집 아님 자리) 목록. 검수 내보내기(extra_train)는 train에만 더한다."""
+def _photos(src: Path, split: str, extra_train: Path | None,
+            exclude: frozenset[str] = frozenset()) -> list[tuple[Path, Path, Path | None]]:
+    """(사진, 라벨, 흠집 아님 자리) 목록. 검수 내보내기(extra_train)는 train에만 더하고, exclude 이름은 뺀다."""
     out: list[tuple[Path, Path, Path | None]] = [
         (p, src / "labels" / split / f"{p.stem}.txt", None) for p in sorted((src / "images" / split).glob("*.jpg"))]
     if extra_train is not None and split == "train":
         out += [(p, extra_train / "labels" / "train" / f"{p.stem}.txt", extra_train / "hard" / "train" / f"{p.stem}.txt")
-                for p in sorted((extra_train / "images" / "train").glob("*.jpg"))]
+                for p in sorted((extra_train / "images" / "train").glob("*.jpg")) if p.stem not in exclude]
     return out
 
 
 def tile_dataset(src: Path, dest: Path, names: dict[int, str], *, size: int = 640, overlap: float = 0.2,
                  background_ratio: float = 1.0, min_area: float = 16.0,
-                 extra_train: Path | None = None) -> TiledDataset:
+                 extra_train: Path | None = None, extra_exclude: frozenset[str] = frozenset()) -> TiledDataset:
     """src(images|labels/<분할>) → dest 같은 구조의 타일 데이터셋.
 
     train은 흠집 타일을 모두 두고, 흠집 없는 타일은 흠집 타일 수 × background_ratio만큼만 고정 순서로 고른다
@@ -171,7 +172,7 @@ def tile_dataset(src: Path, dest: Path, names: dict[int, str], *, size: int = 64
 
         # 사진 한 장씩 읽고 바로 쓴다. train 빈 타일은 이름·위치만 모았다가 고른 뒤 다시 읽는다(메모리에 사진을 쌓지 않음)
         n_defect, later, n_background, n_hard = 0, [], 0, 0
-        for photo, label_path, hard_path in _photos(src, split, extra_train):
+        for photo, label_path, hard_path in _photos(src, split, extra_train, extra_exclude):
             polys = _read_labels(label_path) if label_path.exists() else []
             hard = _read_labels(hard_path) if hard_path and hard_path.exists() else []
             image = _read_image(photo)

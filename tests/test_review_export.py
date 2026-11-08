@@ -109,31 +109,33 @@ def test_읽지_못한_사진과_점이_모자란_폴리곤은_건너뛰고_사�
 def _csv(path: Path, rows: list[list[str]]) -> Path:
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["public_id"] * 15)
+        writer.writerow(["public_id"] * 17)
         writer.writerows(rows)
     return path
 
 
-def _row(photo: str, defect: str, when: str, decision: str = "CONFIRMED", reason: str = "") -> list[str]:
+def _row(photo: str, defect: str, when: str, decision: str = "CONFIRMED", reason: str = "",
+         asset: str = "") -> list[str]:
     return [photo, "SET1", "RNT1", "TOP", "L1", "CAM1", f"sets/{photo}.jpg", when, defect, "scratch",
-            json.dumps([[1, 1], [50, 1], [50, 50]]), "0.42", "aug", decision, reason]
+            json.dumps([[1, 1], [50, 1], [50, 50]]), "0.42", "aug", decision, reason, "C02SERIAL", asset]
 
 
 def test_학교_서버_CSV를_사진별로_묶고_since_뒤만_고른다(tmp_path):
     path = _csv(tmp_path / "reviews.csv", [
         _row("PH1", "D1", "2026-11-07T10:00:00+00:00"),
         _row("PH2", "D2", "2026-11-08T10:00:00.123+00:00"),
-        _row("PH2", "D3", "2026-11-08T10:00:00.123+00:00", "DISMISSED", "REFLECTION"),
+        _row("PH2", "D3", "2026-11-08T10:00:00.123+00:00", "DISMISSED", "REFLECTION", asset="mb04"),
     ])
     photos = CsvReviewSource(path).photos(datetime(2026, 11, 8, tzinfo=UTC))
     assert [p.photo_id for p in photos] == ["PH2"]
     assert [(d.decision, d.reason) for d in photos[0].defects] == [("CONFIRMED", None), ("DISMISSED", "REFLECTION")]
     assert photos[0].defects[0].polygon[1] == (50.0, 1.0)
+    assert photos[0].device_ids() == {"C02SERIAL"}  # 사진의 첫 줄 값을 쓴다
 
 
 def test_열_수가_다른_CSV는_멈춘다(tmp_path):
     path = _csv(tmp_path / "bad.csv", [["PH1", "SET1"]])
-    with pytest.raises(ReviewExportError, match="15개"):
+    with pytest.raises(ReviewExportError, match="17개"):
         CsvReviewSource(path).photos(None)
 
 
@@ -142,10 +144,55 @@ def test_SQL은_검수_완료된_부스_빠른_검사와_결정된_흠집만_읽
     assert cmd.startswith("docker compose exec -T postgres psql") and "\\copy (" in cmd
     assert "cs.profile = 'QUICK'" in cmd and "review_completed_at is not null" in cmd
     assert "'2026-11-08T00:00:00+00:00'::timestamptz" in cmd and "#>> '{}'" in cmd
+    assert "left join rental.device dv" in cmd and "dv.asset_no" in cmd
     assert "null::timestamptz" in psql_command(None)
     rows = [("PH1", "S", "R", "TOP", "L1", "CAM1", "k", WHEN, "D1", "dent", [[0, 0], [1, 0], [1, 1]], 0.5, "m",
-             "CONFIRMED", None)]
+             "CONFIRMED", None, "C02X", None)]
     assert group_rows(rows)[0].reviewed_at == WHEN
+
+
+def test_사진_받기가_중간에_끊기면_만든_것을_지워_같은_폴더로_다시_돌릴_수_있다(tmp_path):
+    out = tmp_path / "rv"
+    calls = []
+
+    def flaky(bucket: str, key: str) -> bytes:
+        calls.append(key)
+        if len(calls) == 2:
+            raise ConnectionError("터널 끊김")
+        return _jpeg()
+
+    with pytest.raises(ConnectionError):
+        export(FakeSource(_two_photos()), flaky, "trace-captures", out)
+    assert not out.exists() or not any(out.iterdir())
+    assert export(FakeSource(_two_photos()), _fetch, "trace-captures", out).photos == 2
+
+
+def test_깨진_summary_json은_내보내기_오류로_멈춘다(tmp_path):
+    from trace_ml.dataset.review_export import read_summary
+
+    out = _export(tmp_path)
+    (out / "summary.json").write_text("{not json", encoding="utf-8")
+    with pytest.raises(ReviewExportError, match="읽지 못함"):
+        read_summary(out)
+    (out / "summary.json").write_text("[1, 2]", encoding="utf-8")
+    with pytest.raises(ReviewExportError, match="모르는 내보내기 형식"):
+        read_summary(out)
+
+
+def test_검증_기기_사진은_검수분에서_빠져_train에_들어가지_않는다(tmp_path):
+    w = _world([(10, 10), (20, 10), (20, 20), (10, 20)])
+    out = tmp_path / "rv"
+    photos = _two_photos()
+    photos[1].asset_no = "reg02"  # BOT 사진은 VAL 기기(REG02) 것
+    export(FakeSource(photos), _fetch, "trace-captures", out, now=lambda: WHEN)
+    rows = [json.loads(line) for line in (out / "reviews.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert rows[1]["device"] == {"serial": None, "assetNo": "reg02"}
+    result = _train(w, tmp_path / "cache", FakeTrainer(), extra_train=out)
+    run = json.loads(w.s3.objects[("trace-models", result.prefix + "run.json")][0])
+    assert run["extraTrain"]["excludedHeldOut"] == ["rv_SET0000000000000000001_BOT_L1_CAM1"]
+    tile_dir = next((tmp_path / "cache" / "datasets").glob("v001-tile640-rv*"))
+    names = {p.name for p in (tile_dir / "images" / "train").glob("rv_*.jpg")}
+    assert names and not any("_BOT_" in n for n in names)
 
 
 def _export(tmp_path: Path) -> Path:
