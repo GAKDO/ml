@@ -135,12 +135,26 @@ def _keep(name: str) -> str:
     return hashlib.sha256(name.encode()).hexdigest()
 
 
+def _photos(src: Path, split: str, extra_train: Path | None,
+            exclude: frozenset[str] = frozenset()) -> list[tuple[Path, Path, Path | None]]:
+    """(사진, 라벨, 흠집 아님 자리) 목록. 검수 내보내기(extra_train)는 train에만 더하고, exclude 이름은 뺀다."""
+    out: list[tuple[Path, Path, Path | None]] = [
+        (p, src / "labels" / split / f"{p.stem}.txt", None) for p in sorted((src / "images" / split).glob("*.jpg"))]
+    if extra_train is not None and split == "train":
+        out += [(p, extra_train / "labels" / "train" / f"{p.stem}.txt", extra_train / "hard" / "train" / f"{p.stem}.txt")
+                for p in sorted((extra_train / "images" / "train").glob("*.jpg")) if p.stem not in exclude]
+    return out
+
+
 def tile_dataset(src: Path, dest: Path, names: dict[int, str], *, size: int = 640, overlap: float = 0.2,
-                 background_ratio: float = 1.0, min_area: float = 16.0) -> TiledDataset:
+                 background_ratio: float = 1.0, min_area: float = 16.0,
+                 extra_train: Path | None = None, extra_exclude: frozenset[str] = frozenset()) -> TiledDataset:
     """src(images|labels/<분할>) → dest 같은 구조의 타일 데이터셋.
 
     train은 흠집 타일을 모두 두고, 흠집 없는 타일은 흠집 타일 수 × background_ratio만큼만 고정 순서로 고른다
     (빈 타일이 대부분이라 그대로 두면 모델이 '없음'만 배운다). val·test는 오탐도 재도록 모든 타일을 둔다.
+    extra_train(trace-ml review export 폴더)의 사진은 train에 더하고, 사람이 흠집 아님으로 지운 자리가 걸친 타일은
+    고르기에서 빼지 않고 모두 둔다(모델이 헷갈린 바로 그 자리라 음성 예시로 가장 쓸모가 있다).
     """
     if size <= 0 or background_ratio < 0:
         raise ValueError("타일 크기는 양수, background_ratio는 0 이상")
@@ -157,10 +171,10 @@ def tile_dataset(src: Path, dest: Path, names: dict[int, str], *, size: int = 64
             (lbl_dir / f"{name}.txt").write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
 
         # 사진 한 장씩 읽고 바로 쓴다. train 빈 타일은 이름·위치만 모았다가 고른 뒤 다시 읽는다(메모리에 사진을 쌓지 않음)
-        n_defect, later, n_background = 0, [], 0
-        for photo in sorted((src / "images" / split).glob("*.jpg")):
-            label_path = src / "labels" / split / f"{photo.stem}.txt"
+        n_defect, later, n_background, n_hard = 0, [], 0, 0
+        for photo, label_path, hard_path in _photos(src, split, extra_train, extra_exclude):
             polys = _read_labels(label_path) if label_path.exists() else []
+            hard = _read_labels(hard_path) if hard_path and hard_path.exists() else []
             image = _read_image(photo)
             height, width = image.shape[:2]
             for t in tiles(width, height, size, overlap):
@@ -169,6 +183,9 @@ def tile_dataset(src: Path, dest: Path, names: dict[int, str], *, size: int = 64
                 if lines:
                     write(name, image[t.y:t.y + t.h, t.x:t.x + t.w], lines)
                     n_defect += 1
+                elif hard and tile_label(hard, width, height, t, min_area):
+                    write(name, image[t.y:t.y + t.h, t.x:t.x + t.w], [])
+                    n_hard += 1
                 elif split == "train":
                     later.append((name, photo, t))
                 else:
@@ -185,7 +202,10 @@ def tile_dataset(src: Path, dest: Path, names: dict[int, str], *, size: int = 64
                 for name, t in picked:
                     write(name, image[t.y:t.y + t.h, t.x:t.x + t.w], [])
             n_background += len(later)
-        counts[split] = {"tiles": n_defect + n_background, "defect": n_defect, "background": n_background}
+        counts[split] = {"tiles": n_defect + n_background + n_hard, "defect": n_defect,
+                         "background": n_background + n_hard}
+        if n_hard:
+            counts[split]["dismissed"] = n_hard
     data = {"path": str(dest.resolve()), "train": "images/train", "val": "images/val", "test": "images/test",
             "names": names}
     data_yaml = dest / "data.yaml"

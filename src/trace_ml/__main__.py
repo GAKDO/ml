@@ -9,6 +9,7 @@
     trace-ml dataset device add|list   기기 → 분할(TRAIN·VAL·TEST)
     trace-ml dataset build|list   제출된 주석으로 데이터셋 버전을 만든다(덮어쓰기 없음)
     trace-ml train v001           데이터셋 버전으로 학습, 가중치·ONNX·지표를 버전과 함께 기록
+    trace-ml review sql|export --rows reviews.csv --out 폴더   사람 검수 결과 → 재학습 YOLO 폴더(train --extra-train)
     trace-ml models list          모델 → 데이터셋 버전
     trace-ml evaluate --weights best.pt --data <타일 폴더>   기기 면 판정(문제 있음/없음) 정확도
     trace-ml pretrain scan|build|train   AI Hub 등 공개 데이터로 사전 학습(부스 학습의 --base)
@@ -27,6 +28,7 @@ from pathlib import Path
 
 from . import __version__
 from .dataset import cli as dataset_cli
+from .dataset import review_cli
 from .inspect import cli as inspect_cli
 from .labelstudio import clean as ls_clean
 from .labelstudio import review as ls_review
@@ -112,6 +114,7 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
     ls_parser.add_argument("--out", default="labelstudio-review", help="review: 모아보기를 쓸 폴더")
     ls_parser.add_argument("--with-clean", action="store_true", help="review: no_defect 사진도 넣어 빠진 흠집을 본다")
     dataset_cli.add_parsers(sub)
+    review_cli.add_parsers(sub)
     training_cli.add_parsers(sub)
     inspect_cli.add_parsers(sub)
     pretrain_cli.add_parsers(sub)
@@ -121,6 +124,8 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
         return _labelstudio(args.command, environ, args.devices, args.dry_run, args.out, args.with_clean)
     if args.tool in ("inspect", "align"):
         return inspect_cli.run(args, environ)
+    if args.tool == "review":
+        return review_cli.run(args, environ)
     if args.tool == "pretrain":
         return pretrain_cli.run(args)
     if args.tool == "rehearse":

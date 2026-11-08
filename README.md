@@ -24,12 +24,24 @@ python -m trace_ml
 | `trace-ml dataset build\|list` | 제출된 주석으로 기기 단위 데이터셋 버전(덮어쓰기 없음) | ML1 |
 | `trace-ml train <버전>` | YOLO11-seg 학습, 가중치·ONNX·지표를 버전과 함께 `trace-models`·`ml.training_run`에 | ML1 |
 | `trace-ml models list` | 모델 → 데이터셋 버전 | ML1 |
+| `trace-ml review sql\|export` | 사람 검수 결과(흠집 맞음=라벨, 흠집 아님=음성 예시)를 YOLO 폴더로. `train --extra-train <폴더>`로 train에만 더함 | ML1 |
 | `trace-ml evaluate --weights … --data …` | 기기 면 판정(문제 있음/없음) 정확도·문턱별 표, JSON | ML1 |
 | `trace-ml inspect worker` | 큐 `trace.inspect.requested`의 세트를 윤곽 4점으로 펼쳐 `trace-derived`에 올리고 `trace.inspect.completed`(집 PC 자동 시작: `deploy/inspect-worker/`) | ML2 |
 | (정합 보정) | `TRACE_ALIGN=features`(기본 `contour`)면 윤곽 결과를 같은 대여의 첫 시점 펼친 이미지에 특징점으로 맞춰 다듬음. 모델 폴더에 `superpoint.onnx`·`lightglue.onnx`가 있으면 SuperPoint+LightGlue, 없으면 ORB | ML2 |
 | `trace-ml align photo\|eval\|pair` | 사진 한 장 펼치기, 합성·실제 사진 정합 오차(px·mm) | ML2 |
 
 설정은 환경 변수로 받습니다(`specs/002-dataset-builder/quickstart.md`).
+
+### 사람 검수 결과로 다시 학습하기(11/8)
+
+관리자가 검수 화면에서 확정·기각한 결과를 다음 학습에 씁니다. 부스 빠른 검사(QUICK) 세트만 내보냅니다.
+
+1. 학교 서버 `~/gitops/compose`에서 `trace-ml review sql --since 2026-11-08`이 보여 주는 명령을 돌려 `reviews.csv`를 만들고 집 PC로 가져옵니다(DB 포트는 밖에 열지 않음).
+2. 집 PC에서 사진 저장소(gakdo.site Compose MinIO, 버킷 `trace-captures`)에 닿게 SSH 터널을 열고 `CAPTURE_MINIO_ENDPOINT`·`CAPTURE_MINIO_ACCESS_KEY`·`CAPTURE_MINIO_SECRET_KEY`를 env에 둡니다(값은 서버 `.env`, 채팅·Git에 넣지 않음).
+3. `trace-ml review export --rows reviews.csv --out D:\trace\cache\review-<날짜>` → `images|labels/train`, 흠집 아님 자리 `hard/train`, `reviews.jsonl`, `summary.json`.
+4. `trace-ml train <버전> --tile 640 --extra-train D:\trace\cache\review-<날짜>`. 검수분은 train에만 들어가고, 흠집 아님 자리가 걸친 타일은 빈 타일 고르기에서 빠지지 않습니다. `run.json`의 `extraTrain`에 요약 해시가 남습니다. 기기 시리얼이나 자산번호가 데이터셋 VAL·TEST 기기 코드(예: `MB04`)와 같은 사진은 점수가 부풀지 않게 빼고 `extraTrain.excludedHeldOut`에 적으므로, 관리자 화면에서 기기를 등록할 때 자산번호를 학습 기기 코드로 적어 둡니다.
+
+AI가 아예 못 잡은 흠집은 이 사진들에 라벨이 없으므로 val로는 쓰지 않습니다. 평가는 지금처럼 검증 기기 3대로 합니다.
 
 ## 테스트
 
