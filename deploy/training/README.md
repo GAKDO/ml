@@ -42,10 +42,10 @@ trace-booth bench --engine ~/trace-models/rehearsal/best.engine \
 
 ### 오늘 밤 같이 해 둘 것
 
-아래 두 명령은 Label Studio·MinIO·DB 환경 변수가 필요합니다. 같은 창에서 1번의 `ml.env` 불러오기를 먼저 실행합니다.
+아래 두 명령은 Label Studio·MinIO·DB 환경 변수가 필요합니다. 같은 창에서 1번의 `.env` 불러오기를 먼저 실행합니다.
 
 ```powershell
-Get-Content D:\trace\ml.env | Where-Object { $_ -match '^[A-Z_]+=.' } | ForEach-Object { $n, $v = $_ -split '=', 2; Set-Item "env:$n" $v.Trim() }
+Get-Content D:\trace\ml\.env | Where-Object { $_ -match '^[A-Z_]+=.' } | ForEach-Object { $n, $v = $_ -split '=', 2; Set-Item "env:$n" $v.Trim() }
 docker start label-studio; docker start trace-ml-pg
 trace-ml labelstudio setup      # 프로젝트·trace-raw 소스·trace-labels 타깃. 이미 있으면 그대로
 trace-ml dataset device list    # 기기 분할 확인(실사진 찍을 기기 코드가 정해지면 4번)
@@ -125,7 +125,7 @@ python -c "import torch; print(torch.cuda.is_available())"   # True여야 한다
 
 ## 1. 환경 변수 불러오기
 
-키 값은 `D:\trace\ml.env`(레포 밖)에만 적습니다. 채팅·코드·커밋에 쓰지 않습니다. 파일에 둘 이름:
+키 값은 `D:\trace\ml\.env`(레포 폴더 안이지만 `.gitignore`에 있어 커밋되지 않음)에만 적습니다. 채팅·코드·커밋에 쓰지 않습니다. 파일에 둘 이름:
 
 ```text
 MINIO_ENDPOINT=http://storage.java21.net:8000
@@ -145,7 +145,7 @@ DB_PASSWORD=
 새 PowerShell 창마다:
 
 ```powershell
-Get-Content D:\trace\ml.env | Where-Object { $_ -match '^[A-Z_]+=.' } | ForEach-Object { $n, $v = $_ -split '=', 2; Set-Item "env:$n" $v.Trim() }
+Get-Content D:\trace\ml\.env | Where-Object { $_ -match '^[A-Z_]+=.' } | ForEach-Object { $n, $v = $_ -split '=', 2; Set-Item "env:$n" $v.Trim() }
 docker start trace-ml-pg        # 로컬 기록부
 ```
 
