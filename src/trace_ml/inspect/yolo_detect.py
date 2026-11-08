@@ -140,15 +140,65 @@ def ultralytics_infer(weights: Path, min_confidence: float = 0.25) -> Infer:
     return infer
 
 
-def load_detector(env: Mapping[str, str], make_infer: Callable[[Path], Infer] = ultralytics_infer) -> Detector:
-    """TRACE_DETECT_WEIGHTS(가중치 경로, 옆에 model.json)가 있으면 그 모델, 없으면 NullDetector."""
-    raw = env.get("TRACE_DETECT_WEIGHTS")
+def default_infer(weights: Path, env: Mapping[str, str] | None = None) -> Infer:
+    """.onnx면 onnxruntime CPU(학교 서버 컨테이너, torch 없음), 그 밖(.pt)은 ultralytics(집 PC GPU)."""
+    env = env or {}
+    conf = _float(env, "TRACE_DETECT_CONF", 0.25)
+    if weights.suffix.lower() == ".onnx":
+        from .onnx_seg import onnx_infer
+
+        threads = env.get("TRACE_DETECT_THREADS") or "0"
+        if not threads.isdigit():
+            raise ConfigError("TRACE_DETECT_THREADS는 0 이상의 정수여야 함")
+        return onnx_infer(weights, min_confidence=conf, threads=int(threads))
+    return ultralytics_infer(weights, min_confidence=conf)
+
+
+def _float(env: Mapping[str, str], name: str, default: float) -> float:
+    raw = env.get(name)
     if not raw:
-        log.warning("TRACE_DETECT_WEIGHTS가 없어 폰 탐지를 건너뜀(detector-pending)")
+        return default
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ConfigError(f"{name}는 숫자여야 함: {raw}") from exc
+    if not 0 < value < 1:
+        raise ConfigError(f"{name}는 0과 1 사이여야 함: {raw}")
+    return value
+
+
+def find_weights(env: Mapping[str, str]) -> Path | None:
+    """가중치 경로. TRACE_DETECT_WEIGHTS(파일)가 먼저, 없으면 TRACE_MODEL_DIR 폴더의 best.onnx → best.pt.
+
+    TRACE_MODEL_DIR은 컨테이너에 붙인 모델 폴더다. 모델을 바꿀 때 이 폴더의 best.onnx·model.json만 바꾸고
+    워커를 다시 시작한다. 폴더가 비어 있으면 탐지만 건너뛰고 정합·텍스처는 계속한다(시작을 막지 않음).
+    """
+    raw = env.get("TRACE_DETECT_WEIGHTS")
+    if raw:
+        weights = Path(raw).expanduser()
+        if not weights.is_file():
+            raise ConfigError(f"탐지 가중치 파일이 없음: {weights}")
+        return weights
+    folder = env.get("TRACE_MODEL_DIR")
+    if not folder:
+        return None
+    for name in ("best.onnx", "best.pt"):
+        candidate = Path(folder).expanduser() / name
+        if candidate.is_file():
+            return candidate
+    log.warning("모델 폴더 %s에 best.onnx·best.pt가 없어 폰 탐지를 건너뜀(detector-pending)", folder)
+    return None
+
+
+def load_detector(env: Mapping[str, str],
+                  make_infer: Callable[[Path], Infer] | None = None) -> Detector:
+    """가중치(옆에 model.json)가 있으면 그 모델, 없으면 NullDetector."""
+    weights = find_weights(env)
+    if weights is None:
+        if not env.get("TRACE_MODEL_DIR"):
+            log.warning("TRACE_DETECT_WEIGHTS·TRACE_MODEL_DIR가 없어 폰 탐지를 건너뜀(detector-pending)")
         return NullDetector()
-    weights = Path(raw).expanduser()
-    if not weights.is_file():
-        raise ConfigError(f"탐지 가중치 파일이 없음: {weights}")
     info = ModelInfo.load(weights.parent / "model.json")
     log.info("폰 탐지 모델 %s (%s)", info.model_version, weights.name)
-    return TiledDetector(make_infer(weights), info)
+    infer = make_infer(weights) if make_infer else default_infer(weights, env)
+    return TiledDetector(infer, info)

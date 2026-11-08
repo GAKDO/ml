@@ -17,6 +17,8 @@ dependencies = [
 dev = ["pytest>=8", "ruff>=0.6", "jsonschema>=4.23"]
 # 집 PC 학습에만 필요 (torch 포함, 큼)
 train = ["ultralytics>=8.3", "onnxruntime>=1.18"]
+# 학교 서버 inspect-worker 컨테이너: best.onnx를 CPU로 돌린다(torch 없음, 이미지 작게)
+worker = ["onnxruntime>=1.18"]
 
 [project.scripts]
 trace-ml = "trace_ml.__main__:main"
