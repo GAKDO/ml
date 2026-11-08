@@ -97,13 +97,28 @@ def test_비어_있지_않은_폴더나_검수_결과가_없으면_내보내지_
         export(FakeSource([]), _fetch, "trace-captures", tmp_path / "empty")
 
 
-def test_읽지_못한_사진과_점이_모자란_폴리곤은_건너뛰고_사유를_남긴다(tmp_path):
+def test_읽지_못한_사진과_라벨로_못_바꾼_흠집_맞음이_있는_사진은_빼고_사유를_남긴다(tmp_path):
+    # 흠집 맞음을 라벨로 못 바꾼 사진을 남기면 그 흠집이 배경으로 학습되므로 사진째 뺀다
     photos = [_photo("PH1", "TOP", _defect("D1", "CONFIRMED", [(1.0, 1.0), (2.0, 2.0)])),
-              _photo("PH2", "BOT", _defect("D2", "CONFIRMED"))]
+              _photo("PH2", "BOT", _defect("D2", "CONFIRMED")),
+              _photo("PH3", "KB", _defect("D3", "CONFIRMED", cls="smudge")),
+              _photo("PH4", "SIDE", _defect("D4", "CONFIRMED"))]
     result = export(FakeSource(photos), lambda b, k: b"not-jpeg" if "BOT" in k else _jpeg(), "trace-captures",
                     tmp_path / "rv")
-    assert result.photos == 1 and result.negatives == 1
+    assert (result.photos, result.positives, result.negatives) == (1, 1, 0)
+    assert result.confirmed == {"dent": 1}
     assert any("3개 미만" in s for s in result.skipped) and any("읽지 못함" in s for s in result.skipped)
+    assert any("모르는 클래스" in s for s in result.skipped)
+    assert sum("사진을 뺌" in s for s in result.skipped) == 2
+    assert [p.stem.split("_")[2] for p in (tmp_path / "rv" / "images" / "train").glob("*.jpg")] == ["SIDE"]
+
+
+def test_내보낸_사진이_0장이면_멈추고_폴더를_비워_둔다(tmp_path):
+    out = tmp_path / "rv"
+    with pytest.raises(ReviewExportError, match="0장"):
+        export(FakeSource([_photo("PH1", "TOP", _defect("D1", "CONFIRMED"))]), lambda b, k: b"bad",
+               "trace-captures", out)
+    assert not any(out.iterdir())
 
 
 def _csv(path: Path, rows: list[list[str]]) -> Path:
