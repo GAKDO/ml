@@ -7,6 +7,7 @@ Jetson은 같은 가중치로 만든 TensorRT 엔진을 쓰므로, 가중치 옆
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import logging
 from collections.abc import Callable, Mapping
@@ -182,12 +183,18 @@ def find_weights(env: Mapping[str, str]) -> Path | None:
     folder = env.get("TRACE_MODEL_DIR")
     if not folder:
         return None
-    for name in ("best.onnx", "best.pt"):
+    # 컨테이너(onnxruntime만 설치)에서는 best.pt를 고르면 시작이 멈추므로 ultralytics가 있을 때만 .pt를 본다
+    names = ("best.onnx", "best.pt") if _has_ultralytics() else ("best.onnx",)
+    for name in names:
         candidate = Path(folder).expanduser() / name
         if candidate.is_file():
             return candidate
-    log.warning("모델 폴더 %s에 best.onnx·best.pt가 없어 폰 탐지를 건너뜀(detector-pending)", folder)
+    log.warning("모델 폴더 %s에 %s가 없어 폰 탐지를 건너뜀(detector-pending)", folder, "·".join(names))
     return None
+
+
+def _has_ultralytics() -> bool:
+    return importlib.util.find_spec("ultralytics") is not None
 
 
 def load_detector(env: Mapping[str, str],
