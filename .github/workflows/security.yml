@@ -32,7 +32,7 @@ jobs:
         run: |
           # GitHub 릴리스 다운로드가 가끔 504(HTML)를 돌려줘 tar가 깨진다(11/8). 실패 응답은 받지 않고 다시 시도한다
           # 그래도 안 되면 같은 버전의 공식 컨테이너 이미지(ghcr.io)로 돌린다
-          if curl -fsSL --max-time 120 --retry 6 --retry-all-errors --retry-delay 10 --retry-max-time 600 -o /tmp/gitleaks.tar.gz \
+          if curl -fsSL --max-time 60 --retry 4 --retry-all-errors --retry-delay 10 --retry-max-time 240 -o /tmp/gitleaks.tar.gz \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"; then
             tar xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
             /tmp/gitleaks git --redact --no-banner -v .
