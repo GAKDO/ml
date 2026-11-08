@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from ..dataset.review_export import ReviewExportError, read_summary
+from ..labelstudio.config import ConfigError
 from ..registry import Registry, RegistryError, TrainingRun
 from ..settings import MinioSettings
 from ..store import Store
@@ -38,8 +40,21 @@ def train(store: Store, registry: Registry, settings: MinioSettings, version: st
           epochs: int, imgsz: int, cache_dir: Path, trainer: Callable[[TrainSpec], TrainOutput] = train_yolo,
           now: Callable[[], datetime] = lambda: datetime.now(UTC), tile: int = 0, overlap: float = 0.2,
           background_ratio: float = 1.0, batch: int = -1, extra: dict[str, Any] | None = None,
-          model_name: str | None = None) -> RunResult:
-    """tile > 0이면 부스(BO2)처럼 원본을 tile px 타일로 잘라 학습하고, imgsz·ONNX도 tile 크기로 맞춘다."""
+          model_name: str | None = None, extra_train: Path | None = None) -> RunResult:
+    """tile > 0이면 부스(BO2)처럼 원본을 tile px 타일로 잘라 학습하고, imgsz·ONNX도 tile 크기로 맞춘다.
+
+    extra_train은 trace-ml review export 폴더(사람 검수 결과). train에만 더하고 run.json에 요약 해시를 남긴다.
+    """
+    if extra_train is not None and not tile:
+        raise ConfigError("--extra-train은 타일 학습(--tile 640)에서만 씀")
+    extra_doc = None
+    if extra_train is not None:
+        try:
+            summary, summary_sha = read_summary(extra_train)
+        except ReviewExportError as exc:
+            raise ConfigError(str(exc)) from exc
+        extra_doc = {"path": str(extra_train), "summarySha256": summary_sha, "photos": summary.get("photos"),
+                     "confirmed": summary.get("confirmed"), "dismissed": summary.get("dismissed")}
     found = [v for v in registry.versions() if v.version == version]
     if not found:
         raise RegistryError(f"데이터셋 버전 {version}이 없음: trace-ml dataset list로 확인")
@@ -47,10 +62,15 @@ def train(store: Store, registry: Registry, settings: MinioSettings, version: st
     fetched = fetch(store, settings, ds, cache_dir / "datasets")
     data_yaml, tiling = fetched.data_yaml, None
     has_test = bool(fetched.manifest["counts"]["images"].get("test"))
+    if extra_train is not None and summary.get("classes") != list(fetched.manifest["classes"]):
+        # 클래스 번호가 다르면 라벨이 다른 흠집으로 읽힌다
+        raise ConfigError(f"검수 내보내기 클래스 {summary.get('classes')}가 {version}과 다름")
     if tile:
         names = dict(enumerate(fetched.manifest["classes"]))
-        tiled = tile_dataset(fetched.data_yaml.parent, cache_dir / "datasets" / f"{version}-tile{tile}", names,
-                             size=tile, overlap=overlap, background_ratio=background_ratio)
+        # 검수분을 섞으면 같은 버전의 타일 폴더와 구분한다(섞지 않은 학습이 이 폴더를 다시 쓰지 않게)
+        suffix = f"-rv{extra_doc['summarySha256'][:8]}" if extra_doc else ""
+        tiled = tile_dataset(fetched.data_yaml.parent, cache_dir / "datasets" / f"{version}-tile{tile}{suffix}", names,
+                             size=tile, overlap=overlap, background_ratio=background_ratio, extra_train=extra_train)
         data_yaml, imgsz = tiled.data_yaml, tile
         has_test = bool(tiled.counts["test"]["tiles"])
         tiling = {"size": tile, "overlap": overlap, "backgroundRatio": background_ratio, "counts": tiled.counts}
@@ -69,7 +89,8 @@ def train(store: Store, registry: Registry, settings: MinioSettings, version: st
         "manifestSha256": fetched.manifest_sha256, "builderCommit": ds.builder_commit,
         "baseWeights": base_weights, "modelName": model_name, "startedAt": started.isoformat().replace("+00:00", "Z"),
         "finishedAt": now().replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-        "imgsz": imgsz, "tiling": tiling, "trainArgs": dict(extra or {}), "metrics": out.metrics,
+        "imgsz": imgsz, "tiling": tiling, "trainArgs": dict(extra or {}), "extraTrain": extra_doc,
+        "metrics": out.metrics,
         "files": {"weights": "best.pt", "onnx": "best.onnx", "modelInfo": "model.json"},
     }
     # Jetson(BO2)이 엔진 옆에 그대로 두는 파일. 엔진은 이 ONNX로 jetson2에서 FP16으로 만든다

@@ -32,6 +32,8 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     t.add_argument("--batch", type=int, default=-1, help="-1이면 GPU 메모리에 맞춰 자동")
     t.add_argument("--imgsz", type=int, default=1280, help="--tile 0일 때만 씀. 타일 학습은 타일 크기")
     t.add_argument("--cache", type=Path, default=DEFAULT_CACHE, help="받은 데이터셋·학습 폴더")
+    t.add_argument("--extra-train", type=Path,
+                   help="trace-ml review export 폴더(사람 검수 결과). train에만 더하고 run.json에 남긴다")
     # 데이터가 적어 몇 에포크 만에 과적합할 때 쓰는 옵션. 주지 않으면 ultralytics 기본값 그대로
     t.add_argument("--freeze", type=int, help="앞쪽 레이어 N개를 얼린다(사전학습 특징 유지, 예: 10=백본)")
     t.add_argument("--lr0", type=float, help="시작 학습률. 주면 optimizer auto 대신 AdamW로 고정(auto는 lr0를 무시)")
@@ -191,7 +193,8 @@ def run(args: argparse.Namespace, deps: Deps) -> int:
         result = train(deps.store(), reg, load_minio(deps.env), args.version, base_weights=args.base,
                        epochs=args.epochs, imgsz=args.imgsz, cache_dir=args.cache, trainer=deps.trainer,
                        tile=args.tile, overlap=args.overlap, background_ratio=args.background_ratio,
-                       batch=args.batch, extra=train_extra(args), model_name=args.model_name)
+                       batch=args.batch, extra=train_extra(args), model_name=args.model_name,
+                       extra_train=args.extra_train)
         print(f"학습 기록: {args.version} → {result.prefix} (best.pt·best.onnx·model.json·metrics.json·run.json)")
         return 0
     except FetchError as exc:
