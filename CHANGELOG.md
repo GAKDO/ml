@@ -7,6 +7,7 @@ main에 버전이 적힌 CHANGELOG가 올라가면 release.yml이 태그와 GitH
 ## [Unreleased]
 
 ### 추가
+- inspect-worker 컨테이너(`Dockerfile`, GHCR `inspect-worker`): best.onnx를 onnxruntime CPU로 돌리는 폰 탐지(부스와 같은 후처리), 모델 폴더 `TRACE_MODEL_DIR`·탐지 문턱 `TRACE_DETECT_CONF`
 - `trace-ml pretrain scan|build|train`: AI Hub 라벨 JSON(이미지별·labelme·COCO)을 클래스 표로 YOLO-seg 640 타일 데이터셋으로 바꾸고 사전 학습(부스 학습의 --base)
 - `trace-ml rehearse`: 실사진 없이 합성 사진으로 640 타일 학습 → 고정 640 ONNX → testOnly model.json까지 끝까지 시험(ML1·BO2 배선 확인)
 - 블로그(AIGJ-01-002-blog/devlog) CI/CD를 옮겨 초기 구성

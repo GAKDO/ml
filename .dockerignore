@@ -1,0 +1,12 @@
+.git
+.github
+.claude
+.specify
+specs
+tests
+deploy
+scripts
+**/__pycache__
+**/*.pyc
+*.egg-info
+.venv

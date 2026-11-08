@@ -74,3 +74,46 @@ def test_model_json에_버전이_없거나_클래스가_codes와_다르면_시�
 def test_가중치_경로가_틀리면_시작하지_않는다(tmp_path: Path) -> None:
     with pytest.raises(ConfigError):
         load_detector({"TRACE_DETECT_WEIGHTS": str(tmp_path / "none.pt")})
+
+
+def test_모델_폴더에_best_onnx와_model_json을_넣으면_그_모델로_탐지한다(tmp_path: Path) -> None:
+    (tmp_path / "best.onnx").write_bytes(b"x")
+    (tmp_path / "model.json").write_text(json.dumps({"modelVersion": "best-v001", "classes": list(INFO.classes)}),
+                                         encoding="utf-8")
+    seen: list[Path] = []
+    detector = load_detector({"TRACE_MODEL_DIR": str(tmp_path)},
+                             make_infer=lambda p: seen.append(p) or (lambda tile: []))
+    assert detector.model_version == "best-v001"
+    assert seen == [tmp_path / "best.onnx"]
+
+
+def test_모델_폴더가_비어_있으면_탐지만_건너뛰고_워커는_시작한다(tmp_path: Path) -> None:
+    assert isinstance(load_detector({"TRACE_MODEL_DIR": str(tmp_path)}), NullDetector)
+
+
+@pytest.mark.parametrize("conf", ["abc", "1.5"])
+def test_탐지_문턱이_0과_1_사이가_아니면_시작하지_않는다(tmp_path: Path, conf: str) -> None:
+    weights = _weights(tmp_path, {"modelVersion": "v", "classes": list(INFO.classes)})
+    with pytest.raises(ConfigError):
+        load_detector({"TRACE_DETECT_WEIGHTS": str(weights), "TRACE_DETECT_CONF": conf})
+
+
+def test_ONNX_출력은_부스와_같은_후처리로_타일_px_폴리곤이_된다() -> None:
+    from trace_ml.inspect.onnx_seg import decode, letterbox
+
+    # 타일 320×320 → 입력 640(2배, 여백 없음). 입력 px (100,100)~(300,200) 상자 하나, 클래스 1(dent)
+    blob, box = letterbox(np.zeros((320, 320, 3), np.uint8), 640)
+    assert blob.shape == (1, 3, 640, 640) and box.scale == 2.0
+    preds = np.zeros((1, 4 + 4 + 32, 8400), np.float32)
+    preds[0, :4, 0] = [200, 150, 200, 100]
+    preds[0, 5, 0] = 0.9
+    preds[0, 8, 0] = 1.0  # 마스크 계수 첫 번째만 1
+    preds[0, 5, 1] = 0.1  # 문턱 아래는 버린다
+    protos = np.ones((1, 32, 160, 160), np.float32)
+    found = decode(preds, protos, box, min_confidence=0.25)
+    assert len(found) == 1
+    assert found[0].class_index == 1 and found[0].confidence == pytest.approx(0.9)
+    xs = [p[0] for p in found[0].polygon]
+    ys = [p[1] for p in found[0].polygon]
+    assert min(xs) == pytest.approx(50, abs=1) and max(xs) == pytest.approx(150, abs=1)
+    assert min(ys) == pytest.approx(50, abs=1) and max(ys) == pytest.approx(100, abs=1)

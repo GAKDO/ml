@@ -1,4 +1,12 @@
-# inspect-worker 집 PC 설치 (ML2)
+# inspect-worker 설치 (ML2)
+
+> **11/8부터 기본은 학교 서버 Compose 컨테이너입니다.** gitops `compose/docker-compose.yml`의 `inspect-worker`가 이미지
+> `ghcr.io/gakdo/inspect-worker`(이 레포 `Dockerfile`, torch 없이 onnxruntime CPU)로 뜹니다. 탐지 모델은
+> `compose/models/`에 `best.onnx`·`model.json`을 넣고 `docker compose restart inspect-worker` 하면 바뀝니다
+> (폴더가 비면 탐지만 건너뛰고 정합·3D 텍스처는 계속). 환경 변수 `TRACE_MODEL_DIR`(기본 `/models`)·`TRACE_DETECT_CONF`(기본 0.25)·
+> `TRACE_DETECT_THREADS`. 아래 집 PC 설치는 GPU로 빠르게 돌리고 싶을 때의 대안입니다(학교 서버 워커를 멈추고 쓰세요. 같은 큐를 나눠 받습니다).
+
+## 집 PC 설치(대안)
 
 집 PC가 켜지면 inspect-worker가 자동으로 떠서, 꺼져 있던 동안 큐 `trace.inspect.requested`에 쌓인 촬영 세트를 처리합니다(FR-OPS-01). 큐는 durable이라 메시지가 사라지지 않습니다.
 
