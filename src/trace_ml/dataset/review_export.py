@@ -240,8 +240,13 @@ def _export(photos: list[ReviewedPhoto], fetch: Fetch, bucket: str, out_dir: Pat
             skipped.append(f"{photo.photo_id}: 사진을 읽지 못함({photo.object_key})")
             continue
         lines, problems = yolo_lines(photo.defects, *size)
+        if problems:
+            # 흠집 맞음인데 라벨로 못 바꾼 것이 있으면 그 자리가 배경으로 학습돼 진짜 흠집을 놓치게 가르치므로 사진째 뺀다
+            skipped.extend(problems)
+            skipped.append(f"{photo.photo_id}: 흠집 맞음을 라벨로 못 바꿔 사진을 뺌")
+            continue
         hard, hard_problems = yolo_lines(photo.defects, *size, decision="DISMISSED")
-        skipped.extend(problems + hard_problems)
+        skipped.extend(hard_problems)
         if hard:
             (hard_dir / f"{photo.name}.txt").write_text("".join(f"{line}\n" for line in hard), encoding="utf-8")
         (img_dir / f"{photo.name}.jpg").write_bytes(body)
@@ -263,6 +268,8 @@ def _export(photos: list[ReviewedPhoto], fetch: Fetch, bucket: str, out_dir: Pat
             "defects": [{"defectId": d.defect_id, "class": d.cls, "decision": d.decision, "reason": d.reason,
                          "confidence": d.confidence, "modelVersion": d.model_version} for d in photo.defects],
         }, ensure_ascii=False))
+    if not records:
+        raise ReviewExportError("내보낸 사진이 0장: " + ("; ".join(skipped[:5]) or "모든 사진을 건너뜀"))
     (out_dir / "reviews.jsonl").write_text("".join(f"{r}\n" for r in records), encoding="utf-8")
     summary = {
         "schema": "trace.review-export.v1", "exportedAt": now().replace(microsecond=0).isoformat(),
