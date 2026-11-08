@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -48,3 +49,34 @@ def train_yolo(spec: TrainSpec) -> TrainOutput:  # pragma: no cover - GPU·ultra
     # Jetson TensorRT(JetPack 6)가 읽는 고정 크기 ONNX: 입력 1×3×imgsz×imgsz, opset 17. FP16 변환은 Jetson에서 한다
     onnx = Path(best.export(format="onnx", imgsz=spec.imgsz, opset=17, dynamic=False, simplify=True, half=False))
     return TrainOutput(Path(model.trainer.best), onnx, metrics)
+
+
+def _validate_yolo(weights: Path, spec: TrainSpec) -> dict[str, Any]:  # pragma: no cover - ultralytics가 있는 집 PC에서만
+    try:
+        from ultralytics import YOLO
+    except ImportError as exc:
+        raise RuntimeError('ultralytics가 없음: python -m pip install -e ".[train]"') from exc
+    best = YOLO(str(weights))
+    metrics: dict[str, Any] = {"val": _seg(best.val(data=str(spec.data_yaml), split="val", imgsz=spec.imgsz))}
+    if spec.has_test:
+        metrics["test"] = _seg(best.val(data=str(spec.data_yaml), split="test", imgsz=spec.imgsz))
+    return metrics
+
+
+def existing_run(run_dir: Path, validate: Callable[[Path, TrainSpec], dict[str, Any]] = _validate_yolo,
+                 ) -> Callable[[TrainSpec], TrainOutput]:
+    """저장소가 멈췄을 때 yolo로 따로 학습한 폴더(weights/best.pt·best.onnx)를 학습 대신 쓴다.
+
+    지표는 기록할 데이터셋 버전의 val·test로 다시 잰다. 그래서 다른 버전 데이터로 학습한 가중치도 점수는 이 버전 기준이 된다.
+    """
+    weights, onnx = run_dir / "weights" / "best.pt", run_dir / "weights" / "best.onnx"
+
+    def trainer(spec: TrainSpec) -> TrainOutput:
+        missing = [p.name for p in (weights, onnx) if not p.is_file()]
+        if missing:
+            raise RuntimeError(f"{run_dir / 'weights'}에 {', '.join(missing)}가 없음"
+                               "(best.onnx는 yolo export format=onnx imgsz=640 opset=17로 먼저 만든다)")
+        metrics = {"epochs": spec.epochs, "imgsz": spec.imgsz, **validate(weights, spec)}
+        return TrainOutput(weights, onnx, metrics)
+
+    return trainer

@@ -23,6 +23,7 @@ python -m trace_ml
 | `trace-ml dataset device add\|list` | 기기 → 분할(TRAIN·VAL·TEST) | ML1 |
 | `trace-ml dataset build\|list` | 제출된 주석으로 기기 단위 데이터셋 버전(덮어쓰기 없음) | ML1 |
 | `trace-ml train <버전>` | YOLO11-seg 학습, 가중치·ONNX·지표를 버전과 함께 `trace-models`·`ml.training_run`에 | ML1 |
+| `trace-ml train <버전> --from-run <폴더>` | 저장소가 멈췄을 때 `yolo`로 따로 학습한 폴더(`weights/best.pt`·`best.onnx`)를 학습 없이 같은 방식으로 기록(지표는 이 버전 val로 다시 잼). 올린 `best.onnx`·`model.json`은 `<폴더>/registered/`에도 남음 | ML1 |
 | `trace-ml models list` | 모델 → 데이터셋 버전 | ML1 |
 | `trace-ml review sql\|export` | 사람 검수 결과(흠집 맞음=라벨, 흠집 아님=음성 예시)를 YOLO 폴더로. `train --extra-train <폴더>`로 train에만 더함 | ML1 |
 | `trace-ml evaluate --weights … --data …` | 기기 면 판정(문제 있음/없음) 정확도·문턱별 표, JSON | ML1 |

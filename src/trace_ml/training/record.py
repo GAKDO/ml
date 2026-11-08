@@ -36,14 +36,24 @@ def model_version(name: str, version: str, run_name: str) -> str:
     return name[:max(1, _MODEL_VERSION_MAX - len(tail))] + tail
 
 
+def _imported(run_dir: Path | None) -> dict[str, Any] | None:
+    if run_dir is None:
+        return None
+    args = run_dir / "args.yaml"
+    return {"path": str(run_dir), "argsYaml": args.read_text(encoding="utf-8") if args.is_file() else None}
+
+
 def train(store: Store, registry: Registry, settings: MinioSettings, version: str, *, base_weights: str,
           epochs: int, imgsz: int, cache_dir: Path, trainer: Callable[[TrainSpec], TrainOutput] = train_yolo,
           now: Callable[[], datetime] = lambda: datetime.now(UTC), tile: int = 0, overlap: float = 0.2,
           background_ratio: float = 1.0, batch: int = -1, extra: dict[str, Any] | None = None,
-          model_name: str | None = None, extra_train: Path | None = None) -> RunResult:
+          model_name: str | None = None, extra_train: Path | None = None,
+          imported_from: Path | None = None) -> RunResult:
     """tile > 0이면 부스(BO2)처럼 원본을 tile px 타일로 잘라 학습하고, imgsz·ONNX도 tile 크기로 맞춘다.
 
     extra_train은 trace-ml review export 폴더(사람 검수 결과). train에만 더하고 run.json에 요약 해시를 남긴다.
+    imported_from은 따로 학습한 폴더(trainer=existing_run). 그 폴더의 args.yaml을 run.json에 남기고,
+    올린 best.onnx·model.json을 폴더의 registered/에도 써서 USB로 바로 옮길 수 있게 한다.
     """
     if extra_train is not None and not tile:
         raise ConfigError("--extra-train은 타일 학습(--tile 640)에서만 씀")
@@ -101,7 +111,7 @@ def train(store: Store, registry: Registry, settings: MinioSettings, version: st
         "baseWeights": base_weights, "modelName": model_name, "startedAt": started.isoformat().replace("+00:00", "Z"),
         "finishedAt": now().replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "imgsz": imgsz, "tiling": tiling, "trainArgs": dict(extra or {}), "extraTrain": extra_doc,
-        "metrics": out.metrics,
+        "metrics": out.metrics, "importedFrom": _imported(imported_from),
         "files": {"weights": "best.pt", "onnx": "best.onnx", "modelInfo": "model.json"},
     }
     # Jetson(BO2)이 엔진 옆에 그대로 두는 파일. 엔진은 이 ONNX로 jetson2에서 FP16으로 만든다
@@ -115,6 +125,16 @@ def train(store: Store, registry: Registry, settings: MinioSettings, version: st
         ("run.json", json.dumps(run_doc, ensure_ascii=False, indent=2).encode(), "application/json"),
         ("model.json", json.dumps(model_info, ensure_ascii=False, indent=2).encode(), "application/json"),
     ]
+    if imported_from is not None:
+        # 올리기 전에 쓴다: 로컬 쓰기가 실패하면 저장소·기록에 아무것도 남지 않아 그대로 다시 돌릴 수 있다
+        local = imported_from / "registered"
+        try:
+            local.mkdir(exist_ok=True)
+            for name, body, _ in files:
+                if name in ("best.onnx", "model.json"):
+                    (local / name).write_bytes(body)
+        except OSError as exc:
+            raise ConfigError(f"{local}에 쓰지 못함: {exc}") from exc
     for name, body, ctype in files:
         store.put_new(settings.models_bucket, prefix + name, body, ctype, meta)
     run = TrainingRun(version, base_weights, out.metrics, prefix + "best.pt", prefix + "best.onnx")

@@ -15,6 +15,7 @@ from ..settings import load_minio
 from ..store import StoreError
 from .fetch import FetchError
 from .record import train
+from .yolo import existing_run
 
 DEFAULT_CACHE = Path(os.path.expanduser("~/.cache/trace-ml"))
 
@@ -41,6 +42,8 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     t.add_argument("--patience", type=int, help="val이 좋아지지 않으면 이만큼 뒤에 멈춘다(기본 100)")
     t.add_argument("--cos-lr", action="store_true", help="코사인 학습률 감소")
     t.add_argument("--model-name", help="model.json modelVersion 앞부분(기본: --base 파일 이름). 예: yolo11m-aihub")
+    t.add_argument("--from-run", type=Path,
+                   help="학습하지 않고, yolo로 따로 학습한 폴더(weights/best.pt·best.onnx)를 이 버전으로 기록한다")
     t.add_argument("--set", action="append", default=[], metavar="KEY=VALUE", dest="overrides",
                    help="ultralytics train 인자를 그대로 넘긴다(여러 번 가능). 예: --set degrees=10 --set mixup=0.1")
     e = sub.add_parser("evaluate", help="기기 면 판정(문제 있음/없음)이 라벨과 맞는지 센다. MinIO·DB 없이 돈다")
@@ -190,12 +193,20 @@ def run(args: argparse.Namespace, deps: Deps) -> int:
                 mask = r.metrics.get("test", r.metrics.get("val", {})).get("mask", {})
                 print(f"{r.dataset_version}  {r.model_key}  기본 {r.base_weights}  mask mAP50 {mask.get('map50', '-')}")
             return 0
+        from_run = getattr(args, "from_run", None)
+        if from_run and (args.extra_train or not args.tile or not from_run.is_dir()):
+            # 가중치가 쓰지 않은 검수분을 run.json에 적으면 기록이 틀린다. 따로 학습한 가중치는 타일 학습이라
+            # --tile 0(전체 사진 1280px)으로 다시 재면 지표가 학습 조건과 달라진다
+            raise ConfigError("--from-run은 있는 폴더여야 하고 --tile(예: 640)과 쓰며 --extra-train과 같이 쓰지 않음")
+        trainer = existing_run(from_run) if from_run else deps.trainer
         result = train(deps.store(), reg, load_minio(deps.env), args.version, base_weights=args.base,
-                       epochs=args.epochs, imgsz=args.imgsz, cache_dir=args.cache, trainer=deps.trainer,
+                       epochs=args.epochs, imgsz=args.imgsz, cache_dir=args.cache, trainer=trainer,
                        tile=args.tile, overlap=args.overlap, background_ratio=args.background_ratio,
                        batch=args.batch, extra=train_extra(args), model_name=args.model_name,
-                       extra_train=args.extra_train)
+                       extra_train=args.extra_train, imported_from=from_run)
         print(f"학습 기록: {args.version} → {result.prefix} (best.pt·best.onnx·model.json·metrics.json·run.json)")
+        if from_run:
+            print(f"부스·서버로 옮길 파일: {from_run / 'registered'} (best.onnx·model.json)")
         return 0
     except FetchError as exc:
         print(f"학습 중단: {exc}", file=sys.stderr)
