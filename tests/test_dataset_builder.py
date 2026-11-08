@@ -102,6 +102,16 @@ def test_주석이_여럿이면_ground_truth_없으면_가장_최근_것을_쓴�
     assert collect([{**doc, "annotations": [old, new, gt]}])[0].annotation_id == 3
 
 
+def test_주석을_지우고_Skip으로_바꾸면_남은_옛_내보내기가_있어도_그_사진은_빠진다():
+    stale = ann(939, polygon("dent", TRI), updated="2026-11-08T12:00:00Z")
+    skip = ann(1400, cancelled=True, updated="2026-11-08T12:50:00Z")
+    doc = {"id": 1152, "data": {"image": "s3://trace-raw/MB09/MB09_SB_L1_CAM1_01.jpg"}}
+    assert collect([{**doc, "annotations": [stale, skip]}]) == []
+    # Skip 뒤에 다시 그린 주석이 있으면 그것을 쓴다
+    redo = ann(1401, polygon("scratch", TRI), updated="2026-11-08T13:00:00Z")
+    assert collect([{**doc, "annotations": [stale, skip, redo]}])[0].annotation_id == 1401
+
+
 def test_옛_주석_형식_내보내기도_읽는다():
     doc = {"id": 9, "result": [polygon("crack", TRI)], "was_cancelled": False,
            "task": {"id": 4, "data": {"image": "s3://trace-raw/REG01/REG01_SL_L2_CAM1_01.jpg"}}}

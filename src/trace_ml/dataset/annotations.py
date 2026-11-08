@@ -66,12 +66,24 @@ def _tasks(doc: dict[str, Any]) -> list[tuple[dict[str, Any], dict[str, Any]]]:
     return []
 
 
+def _recency(a: dict[str, Any]) -> tuple[str, int]:
+    return str(a.get("updated_at") or ""), int(a.get("id") or 0)
+
+
 def _pick(annotations: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """건너뛴 주석은 버리고, ground truth가 있으면 그것, 없으면 가장 최근 것."""
-    alive = [a for a in annotations if not a.get("was_cancelled")]
-    if not alive:
+    """건너뛴 주석은 버리고, ground truth가 있으면 그것, 없으면 가장 최근 것.
+
+    가장 최근 주석이 Skip이면 사진을 뺀다. trace-labels는 Label Studio가 객체를 지우지 못하게 해 두어서,
+    주석을 지우고 Skip으로 바꾸면 지운 주석의 옛 내보내기 파일이 남는다. 그 옛 파일을 쓰면 안 된다.
+    """
+    if not annotations:
         return None
-    return max(alive, key=lambda a: (bool(a.get("ground_truth")), str(a.get("updated_at") or ""), a.get("id") or 0))
+    alive = [a for a in annotations if not a.get("was_cancelled")]
+    truth = [a for a in alive if a.get("ground_truth")]
+    if truth:
+        return max(truth, key=_recency)
+    latest = max(annotations, key=_recency)
+    return None if latest.get("was_cancelled") else latest
 
 
 def _image_ref(data: dict[str, Any]) -> tuple[str, str] | None:
