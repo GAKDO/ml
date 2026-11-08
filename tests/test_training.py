@@ -125,3 +125,50 @@ def test_이미_받은_파일은_해시가_같으면_다시_받지_않는다(tmp
           cache_dir=tmp_path, trainer=FakeTrainer(), now=lambda: next(clock))
     assert gets == ["v001/manifest.json"]
     assert len(w.registry.runs()) == 2
+
+
+def test_따로_학습한_폴더를_기록하면_그_가중치가_올라가고_지표는_이_버전으로_다시_잰다(tmp_path):
+    from trace_ml.training.yolo import existing_run
+
+    w = built()
+    run_dir = tmp_path / "runs-offline" / "v001-aug"
+    (run_dir / "weights").mkdir(parents=True)
+    (run_dir / "weights" / "best.pt").write_bytes(b"offline-weights")
+    (run_dir / "weights" / "best.onnx").write_bytes(b"offline-onnx")
+    (run_dir / "args.yaml").write_text("degrees: 15\nmixup: 0.15\n", encoding="utf-8")
+    seen = []
+
+    def validate(weights, spec):
+        seen.append((weights, spec.data_yaml))
+        return {"val": METRICS["val"]}
+
+    clock = iter([datetime(2026, 11, 8, 10, 0, tzinfo=UTC), datetime(2026, 11, 8, 10, 5, tzinfo=UTC)])
+    result = train(w.store, w.registry, SETTINGS, "v001", base_weights="pretrain.pt", epochs=40, imgsz=640,
+                   cache_dir=tmp_path / "cache", trainer=existing_run(run_dir, validate=validate),
+                   now=lambda: next(clock), model_name="yolo11m-aihub-aug", imported_from=run_dir)
+    assert w.s3.objects[("trace-models", result.prefix + "best.pt")][0] == b"offline-weights"
+    assert seen and seen[0][0] == run_dir / "weights" / "best.pt"
+    run = json.loads(w.s3.objects[("trace-models", result.prefix + "run.json")][0])
+    assert run["importedFrom"]["argsYaml"].startswith("degrees: 15") and run["metrics"]["epochs"] == 40
+    local = json.loads((run_dir / "registered" / "model.json").read_text(encoding="utf-8"))
+    assert local["modelVersion"] == "yolo11m-aihub-aug-v001-20261108T100000Z-trt-fp16"
+    assert (run_dir / "registered" / "best.onnx").read_bytes() == b"offline-onnx"
+
+
+def test_따로_학습한_폴더에_ONNX가_없거나_검수분과_같이_쓰면_기록하지_않는다(tmp_path, capsys):
+    from trace_ml.training.yolo import existing_run
+
+    w = built()
+    run_dir = tmp_path / "run"
+    (run_dir / "weights").mkdir(parents=True)
+    (run_dir / "weights" / "best.pt").write_bytes(b"w")
+    with pytest.raises(RuntimeError, match="best.onnx"):
+        _train(w, tmp_path / "c", existing_run(run_dir, validate=lambda *_: {}))
+    assert not w.registry.runs()
+    deps = Deps({"MINIO_ENDPOINT": "http://minio.test", "MINIO_ACCESS_KEY": "ak", "MINIO_SECRET_KEY": "sk"},
+                registry=lambda: w.registry, store=lambda: w.store, trainer=FakeTrainer())
+    assert main(["train", "v001", "--from-run", str(run_dir), "--extra-train", str(tmp_path),
+                 "--cache", str(tmp_path / "c")], deps=deps) == 2
+    assert main(["train", "v001", "--from-run", str(tmp_path / "none"), "--cache", str(tmp_path / "c")],
+                deps=deps) == 2
+    assert "--from-run" in capsys.readouterr().err
