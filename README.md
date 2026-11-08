@@ -26,6 +26,7 @@ python -m trace_ml
 | `trace-ml models list` | 모델 → 데이터셋 버전 | ML1 |
 | `trace-ml evaluate --weights … --data …` | 기기 면 판정(문제 있음/없음) 정확도·문턱별 표, JSON | ML1 |
 | `trace-ml inspect worker` | 큐 `trace.inspect.requested`의 세트를 윤곽 4점으로 펼쳐 `trace-derived`에 올리고 `trace.inspect.completed`(집 PC 자동 시작: `deploy/inspect-worker/`) | ML2 |
+| (정합 보정) | `TRACE_ALIGN=features`(기본 `contour`)면 윤곽 결과를 같은 대여의 첫 시점 펼친 이미지에 특징점으로 맞춰 다듬음. 모델 폴더에 `superpoint.onnx`·`lightglue.onnx`가 있으면 SuperPoint+LightGlue, 없으면 ORB | ML2 |
 | `trace-ml align photo\|eval\|pair` | 사진 한 장 펼치기, 합성·실제 사진 정합 오차(px·mm) | ML2 |
 
 설정은 환경 변수로 받습니다(`specs/002-dataset-builder/quickstart.md`).

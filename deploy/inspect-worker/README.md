@@ -4,7 +4,8 @@
 > `ghcr.io/gakdo/inspect-worker`(이 레포 `Dockerfile`, torch 없이 onnxruntime CPU)로 뜹니다. 탐지 모델은
 > `compose/models/`에 `best.onnx`·`model.json`을 넣고 `docker compose restart inspect-worker` 하면 바뀝니다
 > (폴더가 비면 탐지만 건너뛰고 정합·3D 텍스처는 계속). 환경 변수 `TRACE_MODEL_DIR`(기본 `/models`)·`TRACE_DETECT_CONF`(기본 0.25)·
-> `TRACE_DETECT_THREADS`. 아래 집 PC 설치는 GPU로 빠르게 돌리고 싶을 때의 대안입니다(학교 서버 워커를 멈추고 쓰세요. 같은 큐를 나눠 받습니다).
+> `TRACE_DETECT_THREADS`. 정합 보정은 `TRACE_ALIGN=features`(기본 `contour`)로 켜고, 같은 모델 폴더에 `superpoint.onnx`·`lightglue.onnx`
+> (fabio-sim/LightGlue-ONNX 분리 내보내기)가 있으면 쓰고 없으면 ORB로 다듬습니다(인라이어가 모자라면 윤곽 결과 그대로). 아래 집 PC 설치는 GPU로 빠르게 돌리고 싶을 때의 대안입니다(학교 서버 워커를 멈추고 쓰세요. 같은 큐를 나눠 받습니다).
 
 ## 집 PC 설치(대안)
 

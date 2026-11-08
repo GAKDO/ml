@@ -17,6 +17,7 @@ from ..labelstudio.config import ConfigError
 from ..store import Store
 from .detect import Detector
 from .faces import load_dims
+from .features import load_refiner
 from .worker import InspectRequest, InvalidMessage, Progress, WorkerConfig, parse_request, process
 
 log = logging.getLogger(__name__)
@@ -186,6 +187,7 @@ def serve(env: Mapping[str, str], store: Store, detector: Detector | None = None
     import pika
 
     config = load_worker_config(env)
+    refiner = load_refiner(env)  # TRACE_ALIGN=features일 때만
     amqp = load_amqp(env)
     if progress is None:
         redis_settings = load_redis(env)
@@ -197,7 +199,7 @@ def serve(env: Mapping[str, str], store: Store, detector: Detector | None = None
             channel = conn.channel()
             channel.confirm_delivery()
             declare(channel)
-            consumer = Consumer(channel, lambda req: process(req, store, config, detector, progress))
+            consumer = Consumer(channel, lambda req: process(req, store, config, detector, progress, refiner=refiner))
             log.info("inspect-worker 시작: 큐 %s, 기본 기종 %s(이벤트 device가 없을 때)", QUEUE, config.dims.code)
             total += consumer.run(idle_timeout)
             conn.close()
