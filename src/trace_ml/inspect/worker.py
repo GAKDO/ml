@@ -29,6 +29,44 @@ SCHEMA_VERSION = "1.0"
 ALIGN_VERSION = "contour-v1"
 FEATURES_ALIGN_VERSION = "features-v1"  # TRACE_ALIGN=features(윤곽 + 특징점 보정)
 PUBLIC_ID_LEN = 21
+# 디코딩 전에 헤더로 보는 사진 크기 상한(가로×세로). 폰 최대(약 4,800만 화소)·부스 C920보다 넉넉하다.
+# 작은 PNG 하나로 수 GB 배열을 만들게 해 워커(메모리 2GB)를 죽이고 같은 메시지로 계속 다시 죽게 하는 것을 막는다
+MAX_IMAGE_PIXELS = 64_000_000
+
+
+_JPEG_SOF = frozenset({0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF})
+
+
+def image_size(data: bytes) -> tuple[int, int] | None:
+    """디코딩하지 않고 PNG IHDR·JPEG SOF 헤더에서 (가로, 세로)를 읽는다. 둘 다 아니거나 헤더가 깨졌으면 None."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) >= 24 and data[12:16] == b"IHDR":
+        return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+    if data[:2] != b"\xff\xd8":
+        return None
+    i, n = 2, len(data)
+    while i + 4 <= n:
+        if data[i] != 0xFF:
+            return None
+        marker = data[i + 1]
+        if marker == 0xFF:  # 채움 바이트
+            i += 1
+            continue
+        if marker in (0x01, *range(0xD0, 0xD8)):  # 길이 없는 표지
+            i += 2
+            continue
+        length = int.from_bytes(data[i + 2:i + 4], "big")
+        if length < 2:
+            return None
+        if marker in _JPEG_SOF:
+            if i + 9 > n:
+                return None
+            height = int.from_bytes(data[i + 5:i + 7], "big")
+            width = int.from_bytes(data[i + 7:i + 9], "big")
+            return width, height
+        if marker == 0xDA:  # 프레임 헤더 전에 스캔이 시작되면 잘못된 파일
+            return None
+        i += 2 + length
+    return None
 
 
 class InvalidMessage(ValueError):
@@ -166,6 +204,15 @@ def process(req: InspectRequest, store: Store, config: WorkerConfig, detector: D
         body = store.get(config.captures_bucket, photo.object_key)
         if hashlib.sha256(body).hexdigest() != photo.sha256:
             failed.append({"photoId": photo.photo_id, "reason": "해시 불일치: 업로드 때와 다른 사진"})
+            progress.report(req, "ALIGN", index, total)
+            continue
+        size = image_size(body)
+        if size is None:
+            failed.append({"photoId": photo.photo_id, "reason": "사진을 읽지 못함(JPEG·PNG 헤더가 아님)"})
+            progress.report(req, "ALIGN", index, total)
+            continue
+        if size[0] * size[1] > MAX_IMAGE_PIXELS:
+            failed.append({"photoId": photo.photo_id, "reason": f"사진이 너무 큼({size[0]}×{size[1]})"})
             progress.report(req, "ALIGN", index, total)
             continue
         image = cv2.imdecode(np.frombuffer(body, np.uint8), cv2.IMREAD_COLOR)

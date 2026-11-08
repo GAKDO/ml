@@ -228,3 +228,39 @@ def test_아주_얇은_치수도_0px가_되지_않는다() -> None:
     from trace_ml.inspect.faces import DeviceDims
 
     assert face_size_px("SF", DeviceDims("X", width=0.1, depth=0.1, base_h=0.05, lid_h=0.05)) == (1, 1)
+
+
+def _bomb_png(width: int, height: int) -> bytes:
+    """헤더만 큰 PNG(IHDR만 맞고 본문은 비어 있음). 디코딩하면 안 된다."""
+    import struct
+    import zlib
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)
+    chunk = b"IHDR" + ihdr
+    return (b"\x89PNG\r\n\x1a\n" + struct.pack(">I", len(ihdr)) + chunk
+            + struct.pack(">I", zlib.crc32(chunk)) + b"\x00\x00\x00\x00IEND\xaeB`\x82")
+
+
+def test_헤더상_너무_큰_사진은_디코딩하지_않고_failedPhotos에_넣는다(monkeypatch: pytest.MonkeyPatch) -> None:
+    from trace_ml.inspect import worker as worker_mod
+    big = _bomb_png(32000, 32000)
+    top, _ = synthetic_jpeg("TOP", seed=1)
+    event = uploaded_event([(pid("p1"), "TOP", big), (pid("p2"), "TOP", top)])
+    store, _ = _store_with(event, {pid("p1"): big, pid("p2"): top})
+    decoded: list[int] = []
+    real = worker_mod.cv2.imdecode
+    monkeypatch.setattr(worker_mod.cv2, "imdecode", lambda buf, flag: decoded.append(len(buf)) or real(buf, flag))
+    out = process(parse_request(event), store, CONFIG, now=NOW)
+    assert [f["photoId"] for f in out["failedPhotos"]] == [pid("p1")]
+    assert "너무 큼" in out["failedPhotos"][0]["reason"]
+    assert decoded == [len(top)]  # 큰 사진은 imdecode에 가지 않았다
+
+
+def test_JPEG_PNG_헤더에서_크기를_읽고_다른_형식은_None이다() -> None:
+    from trace_ml.inspect.worker import image_size
+    ok, jpg = cv2.imencode(".jpg", np.zeros((30, 50, 3), np.uint8))
+    assert ok
+    assert image_size(jpg.tobytes()) == (50, 30)
+    ok, png = cv2.imencode(".png", np.zeros((7, 9, 3), np.uint8))
+    assert image_size(png.tobytes()) == (9, 7)
+    assert image_size(b"GIF89a....") is None
+    assert image_size(b"\xff\xd8\xff") is None
