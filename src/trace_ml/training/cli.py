@@ -194,9 +194,10 @@ def run(args: argparse.Namespace, deps: Deps) -> int:
                 print(f"{r.dataset_version}  {r.model_key}  기본 {r.base_weights}  mask mAP50 {mask.get('map50', '-')}")
             return 0
         from_run = getattr(args, "from_run", None)
-        if from_run and (args.extra_train or not from_run.is_dir()):
-            # 가중치가 쓰지 않은 검수분을 run.json에 적으면 기록이 틀린다
-            raise ConfigError("--from-run은 있는 폴더여야 하고 --extra-train과 같이 쓰지 않음")
+        if from_run and (args.extra_train or not args.tile or not from_run.is_dir()):
+            # 가중치가 쓰지 않은 검수분을 run.json에 적으면 기록이 틀린다. 따로 학습한 가중치는 타일 학습이라
+            # --tile 0(전체 사진 1280px)으로 다시 재면 지표가 학습 조건과 달라진다
+            raise ConfigError("--from-run은 있는 폴더여야 하고 --tile(예: 640)과 쓰며 --extra-train과 같이 쓰지 않음")
         trainer = existing_run(from_run) if from_run else deps.trainer
         result = train(deps.store(), reg, load_minio(deps.env), args.version, base_weights=args.base,
                        epochs=args.epochs, imgsz=args.imgsz, cache_dir=args.cache, trainer=trainer,

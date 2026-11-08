@@ -125,14 +125,18 @@ def train(store: Store, registry: Registry, settings: MinioSettings, version: st
         ("run.json", json.dumps(run_doc, ensure_ascii=False, indent=2).encode(), "application/json"),
         ("model.json", json.dumps(model_info, ensure_ascii=False, indent=2).encode(), "application/json"),
     ]
+    if imported_from is not None:
+        # 올리기 전에 쓴다: 로컬 쓰기가 실패하면 저장소·기록에 아무것도 남지 않아 그대로 다시 돌릴 수 있다
+        local = imported_from / "registered"
+        try:
+            local.mkdir(exist_ok=True)
+            for name, body, _ in files:
+                if name in ("best.onnx", "model.json"):
+                    (local / name).write_bytes(body)
+        except OSError as exc:
+            raise ConfigError(f"{local}에 쓰지 못함: {exc}") from exc
     for name, body, ctype in files:
         store.put_new(settings.models_bucket, prefix + name, body, ctype, meta)
-    if imported_from is not None:
-        local = imported_from / "registered"
-        local.mkdir(exist_ok=True)
-        for name, body, _ in files:
-            if name in ("best.onnx", "model.json"):
-                (local / name).write_bytes(body)
     run = TrainingRun(version, base_weights, out.metrics, prefix + "best.pt", prefix + "best.onnx")
     registry.add_run(run)
     return RunResult(run_name, prefix, run)

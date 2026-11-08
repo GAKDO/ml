@@ -171,4 +171,6 @@ def test_따로_학습한_폴더에_ONNX가_없거나_검수분과_같이_쓰면
                  "--cache", str(tmp_path / "c")], deps=deps) == 2
     assert main(["train", "v001", "--from-run", str(tmp_path / "none"), "--cache", str(tmp_path / "c")],
                 deps=deps) == 2
+    assert main(["train", "v001", "--from-run", str(run_dir), "--tile", "0", "--cache", str(tmp_path / "c")],
+                deps=deps) == 2
     assert "--from-run" in capsys.readouterr().err
