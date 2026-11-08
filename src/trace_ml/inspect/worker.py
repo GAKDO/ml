@@ -17,7 +17,7 @@ from typing import Any, Protocol
 import cv2
 import numpy as np
 
-from ..store import Store, StoreError
+from ..store import AlreadyExists, Store, StoreError
 from .align import AlignFailure, Alignment, align_photo
 from .detect import Detector, NullDetector, to_standard_defect
 from .faces import FACES, DeviceDims, face_size_px
@@ -246,8 +246,12 @@ def _save_references(req: InspectRequest, texture_keys: dict[str, str], referenc
     """기준이 없던 면은 이번 텍스처를 대여의 기준으로 남긴다(첫 시점이 기준, 덮어쓰지 않음)."""
     for face, key in texture_keys.items():
         if references.get(face) is None:
-            store.put(config.derived_bucket, reference_key(req.rental_id, face),
-                      store.get(config.derived_bucket, key), "image/png")
+            # 메모리 검사만으로는 부족하다(기존 기준을 못 읽었거나 두 워커가 동시에 처리). 조건부 쓰기로 덮어쓰기를 막는다
+            try:
+                store.put_new(config.derived_bucket, reference_key(req.rental_id, face),
+                              store.get(config.derived_bucket, key), "image/png")
+            except AlreadyExists:
+                log.info("정합 기준 이미지가 이미 있어 유지함: %s", face)
 
 
 # 텍스처에 먼저 쓰는 조명: 확산광(L1)·실내(ROOM)가 면 색을 고르게 보여 준다. 스침광은 흠집용이라 뒤로

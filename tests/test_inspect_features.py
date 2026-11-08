@@ -244,3 +244,14 @@ def test_contour_모드는_기준_이미지를_만들지_않는다() -> None:
     out = process(parse_request(event), Store(s3), WorkerConfig(dims=DIMS))
     assert out["modelVersion"] == "contour-v1"
     assert not any(key.startswith("align-ref/") for _, key in s3.objects)
+
+
+def test_기존_기준을_읽지_못해도_새_텍스처로_덮어쓰지_않는다() -> None:
+    s3 = MemoryS3()
+    ref_key = ("trace-derived", f"align-ref/{pid('rental1')}/TOP.png")
+    s3.objects[ref_key] = (b"not-a-png", {})
+    event, _, bodies = _set(1, "set1")
+    for photo in event["photos"]:
+        s3.objects[("trace-captures", photo["objectKey"])] = (bodies[photo["photoId"]], {})
+    process(parse_request(event), Store(s3), WorkerConfig(dims=DIMS), refiner=Refiner((OrbMatcher(),)))
+    assert s3.objects[ref_key][0] == b"not-a-png"
