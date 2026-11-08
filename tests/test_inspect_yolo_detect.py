@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from trace_ml.inspect.detect import NullDetector
-from trace_ml.inspect.yolo_detect import ModelInfo, RawDetection, TiledDetector, load_detector, tiles
+from trace_ml.inspect.yolo_detect import ModelInfo, RawDetection, TiledDetector, find_weights, load_detector, tiles
 from trace_ml.labelstudio.config import ConfigError
 
 INFO = ModelInfo("yolo11s-seg-v001", ("scratch", "dent", "crack", "stain"))
@@ -89,6 +89,16 @@ def test_모델_폴더에_best_onnx와_model_json을_넣으면_그_모델로_탐
 
 def test_모델_폴더가_비어_있으면_탐지만_건너뛰고_워커는_시작한다(tmp_path: Path) -> None:
     assert isinstance(load_detector({"TRACE_MODEL_DIR": str(tmp_path)}), NullDetector)
+
+
+def test_ultralytics가_없는_컨테이너는_best_pt만_있으면_탐지를_건너뛰고_시작한다(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "best.pt").write_bytes(b"pt")
+    monkeypatch.setattr("trace_ml.inspect.yolo_detect._has_ultralytics", lambda: False)
+    assert find_weights({"TRACE_MODEL_DIR": str(tmp_path)}) is None
+    assert isinstance(load_detector({"TRACE_MODEL_DIR": str(tmp_path)}), NullDetector)
+    monkeypatch.setattr("trace_ml.inspect.yolo_detect._has_ultralytics", lambda: True)
+    assert find_weights({"TRACE_MODEL_DIR": str(tmp_path)}) == tmp_path / "best.pt"
 
 
 @pytest.mark.parametrize("conf", ["abc", "1.5"])
