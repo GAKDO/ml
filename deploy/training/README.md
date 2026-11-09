@@ -309,7 +309,8 @@ trace-ml retrain gate --baseline eval-cur.json --candidate eval-new.json --model
 ### 4. 올리기 → 서버·Jetson 동시 교체
 
 ```powershell
-trace-ml retrain promote --model-dir <새 run>\registered --gate gate.json  # 게이트 때와 같은 ONNX여야 함 --reviews D:\trace\cache\review-20261112 --metrics <box>/<mask>
+# --model-dir은 게이트 때와 같은 ONNX여야 함
+trace-ml retrain promote --model-dir <새 run>\registered --gate gate.json --reviews D:\trace\cache\review-20261112 --metrics <box>/<mask>
 ```
 
 `releases\<버전>\` 폴더를 두 곳에 그대로 옮겨 각각 돌립니다.
