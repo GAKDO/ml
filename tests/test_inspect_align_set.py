@@ -36,11 +36,11 @@ def test_세트_사진마다_정합_결과와_실패_사유를_적고_마스크�
     by = {r["photo"]: r for r in rows}
     assert set(by) == {"TOP-L1-CAM1.png", "SF-L1-CAM1.png", "SL-L1-CAM1.png"}
     assert by["TOP-L1-CAM1.png"]["ok"] is True
-    assert by["SF-L1-CAM1.png"] == {"photo": "SF-L1-CAM1.png", "face": "SF", "light": "L1", "camera": "CAM1",
+    assert by["SF-L1-CAM1.png"] == {"photo": "SF-L1-CAM1.png", "face": "SF", "light": "L1", "camera": "CAM1", "method": "CONTOUR",
                                     "ok": False, "reason": "면이 사진 밖으로 나감(두 변 이상 잘림)"}
     assert by["SL-L1-CAM1.png"]["ok"] is False
-    assert (tmp_path / "SF-L1-CAM1-mask.png").exists()
-    assert (tmp_path / "TOP-L1-CAM1-rect.png").exists()
+    assert (tmp_path / "SF-L1-CAM1_png-mask.png").exists()
+    assert (tmp_path / "TOP-L1-CAM1_png-rect.png").exists()
 
 
 def test_면을_고르면_그_면_사진만_돌린다() -> None:

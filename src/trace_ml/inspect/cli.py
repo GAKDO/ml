@@ -94,17 +94,24 @@ def align_set(store: Store, capture_set_id: str, dims: Any, faces: set[str] | No
             rows.append({**row, "ok": False, "reason": "사진을 읽지 못함(디코딩 실패)"})
             continue
         result = align_photo(image, face_size_px(face, dims))
-        stem = name.rsplit(".", 1)[0]
+        stem = name.replace(".", "_")  # 확장자까지 넣어 a.jpg·a.png가 같은 파일을 덮지 않게
+        saved: list[str] = []
         if out_dir:
             pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
-            cv2.imwrite(str(pathlib.Path(out_dir) / f"{stem}-mask.png"), _mask(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)))
+            mask_path = pathlib.Path(out_dir) / f"{stem}-mask.png"
+            if not cv2.imwrite(str(mask_path), _mask(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY))):
+                saved.append(f"저장 실패: {mask_path}")
         if isinstance(result, AlignFailure):
-            rows.append({**row, "ok": False, "reason": result.reason})
+            rows.append({**row, "method": "CONTOUR", "ok": False, "reason": result.reason,
+                         **({"saveError": "; ".join(saved)} if saved else {})})
             continue
         if out_dir:
-            cv2.imwrite(str(pathlib.Path(out_dir) / f"{stem}-rect.png"), result.rectified)
-        rows.append({**row, "ok": True, "partial": result.partial,
-                     "errorPx": None if result.error_px is None else round(result.error_px, 3)})
+            rect_path = pathlib.Path(out_dir) / f"{stem}-rect.png"
+            if not cv2.imwrite(str(rect_path), result.rectified):
+                saved.append(f"저장 실패: {rect_path}")
+        rows.append({**row, "method": "CONTOUR", "ok": True, "partial": result.partial,
+                     "errorPx": None if result.error_px is None else round(result.error_px, 3),
+                     **({"saveError": "; ".join(saved)} if saved else {})})
     return rows
 
 
@@ -154,6 +161,9 @@ def run(args: argparse.Namespace, env: Mapping[str, str], store: Store | None = 
         if args.command == "set":
             store = store or make_store(load_worker_minio(env))
             faces = None if not args.faces else {f.strip() for f in args.faces.split(",") if f.strip()}
+            bad = sorted(f for f in (faces or set()) if f not in FACES)
+            if bad:
+                raise ConfigError(f"모르는 면: {', '.join(bad)}")
             rows = align_set(store, args.capture_set_id, dims, faces=faces, out_dir=args.out)
             for row in rows:
                 print(json.dumps(row, ensure_ascii=False))
