@@ -130,9 +130,14 @@ def train(store: Store, registry: Registry, settings: MinioSettings, version: st
     local = (imported_from or cache_dir / "runs" / run_name) / "registered"
     try:
         local.mkdir(parents=True, exist_ok=True)
+        staged = []
         for name, body, _ in files:
             if name in ("best.onnx", "model.json"):
-                (local / name).write_bytes(body)
+                tmp = local / f"{name}.tmp"
+                tmp.write_bytes(body)
+                staged.append((tmp, local / name))
+        for tmp, dst in staged:  # 두 파일을 다 쓴 뒤에만 바꿔, 새 ONNX와 옛 model.json이 섞이지 않게 한다
+            tmp.replace(dst)
     except OSError as exc:
         raise ConfigError(f"{local}에 쓰지 못함: {exc}") from exc
     for name, body, ctype in files:
