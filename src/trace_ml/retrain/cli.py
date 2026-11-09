@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -12,7 +13,7 @@ from pathlib import Path
 from ..dataset.review_cli import _date, _source
 from ..dataset.review_export import ReviewExportError
 from ..labelstudio.config import ConfigError
-from .pipeline import ModelRegistry, RetrainError, count, gate, model_files, promote, rollback
+from .pipeline import Entry, ModelRegistry, RetrainError, count, gate, model_files, promote, rollback
 from .release import write_release
 
 DEFAULT_REGISTRY = Path(os.path.expanduser("~/.cache/trace-ml/models/registry.json"))
@@ -93,8 +94,15 @@ def _run(args: argparse.Namespace, env: Mapping[str, str]) -> int:
         out = reg.path.parent / "releases" / version
         if out.exists():  # 레지스트리에 올리기 전에 막아, 묶음 없는 현재 모델이 생기지 않게 한다
             raise RetrainError(f"릴리스 폴더가 이미 있음(덮어쓰지 않음): {out}")
-        entry = promote(reg, args.model_dir, gate_doc=gate_doc, reviews=args.reviews, release=str(out))
-        write_release(entry, args.model_dir, out.parent, args.metrics)
+        def bundle(e: Entry) -> None:
+            try:
+                write_release(e, args.model_dir, out.parent, args.metrics)
+            except BaseException:
+                shutil.rmtree(out, ignore_errors=True)  # 반쯤 쓴 묶음이 다음 실행을 막지 않게
+                raise
+
+        entry = promote(reg, args.model_dir, gate_doc=gate_doc, reviews=args.reviews, release=str(out),
+                        before_add=bundle)
         print(f"현재 모델: {entry.modelVersion} (앞 모델 {entry.previous or '없음'}, {entry.kind})")
         print(f"배포 묶음: {out}")
         print("  학교 서버: scp -r 이 폴더 → bash deploy-server.sh")

@@ -141,3 +141,22 @@ def test_명령으로_올린_모델은_서버와_Jetson에_같은_해시로_들�
     broken = subprocess.run(["bash", str(release / "deploy-server.sh")], env=run_env, capture_output=True, text=True, check=False)
     assert broken.returncode == 1 and "해시" in broken.stderr
     assert (compose / "models" / "best.onnx").read_bytes() == server
+
+
+def test_배포_묶음을_쓰다_실패하면_레지스트리는_그대로이고_다시_돌릴_수_있다(tmp_path, monkeypatch):
+    from trace_ml.retrain import cli as retrain_cli
+
+    reg_path = tmp_path / "models" / "registry.json"
+    env = {"TRACE_MODEL_REGISTRY": str(reg_path)}
+    model = _model(tmp_path / "v004", "v004")
+
+    def broken(*_args, **_kwargs):
+        (reg_path.parent / "releases" / "v004").mkdir(parents=True)
+        raise OSError("디스크 가득 참")
+
+    monkeypatch.setattr(retrain_cli, "write_release", broken)
+    assert main(["retrain", "promote", "--model-dir", str(model)], env=env) == 1
+    assert not reg_path.exists() and not (reg_path.parent / "releases" / "v004").exists()
+    monkeypatch.undo()
+    assert main(["retrain", "promote", "--model-dir", str(model)], env=env) == 0
+    assert ModelRegistry(reg_path).current().modelVersion == "v004"

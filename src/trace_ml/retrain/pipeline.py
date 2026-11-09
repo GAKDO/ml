@@ -197,7 +197,8 @@ def model_files(model_dir: Path) -> tuple[str, Path, Path]:
 
 
 def promote(registry: ModelRegistry, model_dir: Path, *, gate_doc: dict[str, Any] | None,
-            reviews: Path | None = None, release: str | None = None, now: Now = _now) -> Entry:
+            reviews: Path | None = None, release: str | None = None, now: Now = _now,
+            before_add: Callable[[Entry], None] | None = None) -> Entry:
     """gate_doc 없이 부르면 처음 한 번(레지스트리가 빌 때)만 허용: 지금 쓰는 모델(v004)을 기준으로 올린다."""
     version, onnx, info = model_files(model_dir)
     cur = registry.current()
@@ -221,6 +222,8 @@ def promote(registry: ModelRegistry, model_dir: Path, *, gate_doc: dict[str, Any
         summary_sha = sha256(reviews / "summary.json")
     entry = Entry(version, sha256(onnx), sha256(info), now().isoformat(), cur.modelVersion if cur else None,
                   "PROMOTE" if gate_doc else "BOOTSTRAP", gate_doc, until, summary_sha, release)
+    if before_add is not None:
+        before_add(entry)  # 배포 묶음을 먼저 다 쓴다: 실패하면 레지스트리는 그대로라 같은 명령을 다시 돌릴 수 있다
     registry.add(entry)
     return entry
 
