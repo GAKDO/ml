@@ -88,6 +88,8 @@ def _load(path: Path) -> dict[str, Any]:
 def _same_data(a: dict[str, Any], b: dict[str, Any]) -> list[str]:
     """두 평가가 같은 데이터·같은 조건인지. 다르면 점수를 비교하는 의미가 없다."""
     problems = [f"{k}가 다름({a.get(k)} vs {b.get(k)})" for k in ("split", "conf", "min_photos") if a.get(k) != b.get(k)]
+    if not a.get("data_sha256") or a.get("data_sha256") != b.get("data_sha256"):
+        problems.append("평가 데이터 지문(data_sha256)이 없거나 다름: 두 모델을 같은 --data로 다시 재세요")
     faces_a = {f["face"]: f["photos"] for f in a["faces"]}
     faces_b = {f["face"]: f["photos"] for f in b["faces"]}
     if faces_a != faces_b:

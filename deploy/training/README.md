@@ -304,7 +304,7 @@ trace-ml evaluate --weights <새 run>\weights\best.pt --data $data --model-versi
 trace-ml retrain gate --baseline eval-cur.json --candidate eval-new.json --out gate.json
 ```
 
-통과 조건: 기기 면 정확도·깨끗한 면 오탐·놓친 흠집 면·사진 재현율이 하나도 나빠지지 않고(정밀도는 0.05까지 허용) 하나 이상 좋아질 것. 평가 조건(split·conf·기기 면 수)이 다르면 비교하지 않고 멈춥니다. 불통과면 여기서 끝, 지금 모델을 그대로 씁니다.
+통과 조건: 기기 면 정확도·깨끗한 면 오탐·놓친 흠집 면·사진 재현율이 하나도 나빠지지 않고(정밀도는 0.05까지 허용) 하나 이상 좋아질 것. 평가 조건(split·conf·기기 면 수)이나 평가 데이터 지문(`data_sha256`, 사진 이름·라벨 내용)이 다르면 비교하지 않고 멈춥니다. 이 PR 전에 만든 evaluate JSON에는 지문이 없으니 두 모델 모두 다시 잽니다. 불통과면 여기서 끝, 지금 모델을 그대로 씁니다.
 
 ### 4. 올리기 → 서버·Jetson 동시 교체
 

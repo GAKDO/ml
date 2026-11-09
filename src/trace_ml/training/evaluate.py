@@ -75,6 +75,8 @@ class Report:
     model_version: str | None = None
     weights: str = ""
     weights_sha256: str = ""
+    # 평가 데이터 지문(사진 이름 + 라벨 내용). 게이트는 두 평가의 지문이 같을 때만 점수를 비교한다
+    data_sha256: str = ""
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False, indent=2)
@@ -190,4 +192,14 @@ def run_evaluate(weights: Path, data_dir: Path, *, split: str = "val", conf: flo
     preds = predict(weights, images, min(0.1, conf))
     report = evaluate(truth, preds, split=split, conf=conf, min_photos=min_photos)
     return replace(report, model_version=model_version, weights=str(weights),
-                   weights_sha256=hashlib.sha256(weights.read_bytes()).hexdigest())
+                   weights_sha256=hashlib.sha256(weights.read_bytes()).hexdigest(),
+                   data_sha256=data_fingerprint(labels_dir, images))
+
+
+def data_fingerprint(labels_dir: Path, images: list[Path]) -> str:
+    """같은 val인지 가리는 값. 사진 이름과 라벨 파일 내용을 정렬해 해시한다(사진 바이트는 크고 느려서 뺀다)."""
+    h = hashlib.sha256()
+    for img in sorted(images, key=lambda p: p.name):
+        h.update(img.name.encode() + b"\0")
+        h.update((labels_dir / f"{img.stem}.txt").read_bytes() + b"\0")
+    return h.hexdigest()

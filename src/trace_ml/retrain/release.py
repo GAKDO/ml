@@ -30,9 +30,12 @@ for f in best.onnx model.json; do
 done
 cp best.onnx model.json "$COMPOSE/models/"
 cd "$COMPOSE"
+# 이번 재시작 뒤 로그만 본다(같은 버전을 다시 배포해도 옛 로그로 성공하지 않게)
+START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 docker compose restart inspect-worker
 for _ in $(seq 1 30); do
-  if docker compose logs --since 5m inspect-worker 2>&1 | grep -qF "폰 탐지 모델 $VERSION"; then
+  if docker compose ps --status running --services 2>/dev/null | grep -qx inspect-worker \
+     && docker compose logs --since "$START" inspect-worker 2>&1 | grep -qF "폰 탐지 모델 $VERSION"; then
     echo "서버 확인 끝: $VERSION ({onnx_short})"
     echo "성능 화면 값은 .env MODEL_METRICS에 $VERSION=<mAP50 box>/<mAP50 mask>를 더하고 docker compose up -d capture-server"
     exit 0
@@ -63,9 +66,9 @@ echo "부스 앱을 다시 띄우세요: export TRACE_BOOTH_ENGINE=$ROOT/current
 def write_release(entry: Entry, model_dir: Path, releases: Path, metrics: str | None = None) -> Path:
     """레지스트리에 올린 모델의 배포 묶음. 이미 있으면 덮어쓰지 않는다."""
     out = releases / entry.modelVersion
-    if out.exists():
+    if out.exists() and any(out.iterdir()):
         raise RetrainError(f"릴리스 폴더가 이미 있음(덮어쓰지 않음): {out}")
-    out.mkdir(parents=True)
+    out.mkdir(parents=True, exist_ok=True)
     for name in ("best.onnx", "model.json"):
         shutil.copyfile(model_dir / name, out / name)
     check = _CHECK.format(version=entry.modelVersion, onnx=entry.onnxSha256, info=entry.modelJsonSha256)

@@ -26,8 +26,8 @@ def _photo(i: int, when: datetime, *decisions: str) -> ReviewedPhoto:
 
 
 def _report(path: Path, version: str | None, *, acc: float, fp: int, fn: int, recall: float, precision: float,
-            photos: int = 6) -> Path:
-    doc = {"split": "val", "conf": 0.25, "min_photos": 1, "model_version": version, "weights_sha256": "ab" * 32,
+            photos: int = 6, data: str = "d" * 64) -> Path:
+    doc = {"data_sha256": data, "split": "val", "conf": 0.25, "min_photos": 1, "model_version": version, "weights_sha256": "ab" * 32,
            "photo": {"recall": recall, "precision": precision},
            "face": {"accuracy": acc, "fp": fp, "fn": fn},
            "faces": [{"face": "MB13_TOP", "photos": photos}, {"face": "MB13_BOT", "photos": photos}]}
@@ -75,6 +75,9 @@ def test_다른_데이터로_잰_평가는_비교하지_않고_멈춘다(tmp_pat
     b = _report(tmp_path / "b.json", "v005", acc=1.0, fp=0, fn=0, recall=0.7, precision=0.6, photos=9)
     with pytest.raises(RetrainError, match="같은 조건"):
         gate(a, b)
+    c = _report(tmp_path / "c.json", "v005", acc=1.0, fp=0, fn=0, recall=0.7, precision=0.6, data="e" * 64)
+    with pytest.raises(RetrainError, match="지문"):
+        gate(a, c)
 
 
 def test_게이트_없이는_처음_한_번만_올리고_기준이_현재_모델이_아니면_올리지_않는다(tmp_path):
@@ -118,7 +121,8 @@ def test_명령으로_올린_모델은_서버와_Jetson에_같은_해시로_들�
     # 가짜 docker(로그에 새 모델 이름)·가짜 trace_booth(엔진 만들고 model.json 복사)
     bin_ = tmp_path / "bin"
     bin_.mkdir()
-    (bin_ / "docker").write_text('#!/bin/sh\n[ "$2" = logs ] && echo "폰 탐지 모델 v005 (best.onnx)"\nexit 0\n')
+    (bin_ / "docker").write_text('#!/bin/sh\n[ "$2" = logs ] && echo "폰 탐지 모델 v005 (best.onnx)"\n'
+                                 '[ "$2" = ps ] && echo inspect-worker\nexit 0\n')
     (bin_ / "fakepy").write_text('#!/bin/sh\n# -m trace_booth build-engine --onnx SRC --out OUT\n'
                                  'mkdir -p "$7"; touch "$7/best.engine"; cp "$(dirname "$5")/model.json" "$7/"\n')
     for f in bin_.iterdir():
