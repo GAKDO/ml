@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -125,16 +126,28 @@ def train(store: Store, registry: Registry, settings: MinioSettings, version: st
         ("run.json", json.dumps(run_doc, ensure_ascii=False, indent=2).encode(), "application/json"),
         ("model.json", json.dumps(model_info, ensure_ascii=False, indent=2).encode(), "application/json"),
     ]
-    if imported_from is not None:
-        # 올리기 전에 쓴다: 로컬 쓰기가 실패하면 저장소·기록에 아무것도 남지 않아 그대로 다시 돌릴 수 있다
-        local = imported_from / "registered"
-        try:
-            local.mkdir(exist_ok=True)
-            for name, body, _ in files:
-                if name in ("best.onnx", "model.json"):
-                    (local / name).write_bytes(body)
-        except OSError as exc:
-            raise ConfigError(f"{local}에 쓰지 못함: {exc}") from exc
+    # 올리기 전에 쓴다: 로컬 쓰기가 실패하면 저장소·기록에 아무것도 남지 않아 그대로 다시 돌릴 수 있다.
+    # 따로 학습한 폴더든 trace-ml train 실행 폴더든 registered/에 두어 retrain promote --model-dir로 바로 쓴다
+    local = (imported_from or cache_dir / "runs" / run_name) / "registered"
+    try:
+        # 새 폴더에 두 파일을 다 쓴 뒤 폴더째 바꾼다. 중간에 끊겨도 옛 짝(registered.old)이나 새 짝만 남고 섞이지 않는다
+        fresh, old = local.with_name("registered.tmp"), local.with_name("registered.old")
+        if old.exists() and not local.exists():  # 지난번에 두 이름 바꾸기 사이에서 끊겼으면 옛 짝을 되살린다
+            old.replace(local)
+        for leftover in (fresh, old):
+            if leftover.exists():
+                shutil.rmtree(leftover)
+        fresh.mkdir(parents=True)
+        for name, body, _ in files:
+            if name in ("best.onnx", "model.json"):
+                (fresh / name).write_bytes(body)
+        if local.exists():
+            local.replace(old)
+        fresh.replace(local)
+        if old.exists():
+            shutil.rmtree(old)
+    except OSError as exc:
+        raise ConfigError(f"{local}에 쓰지 못함: {exc}") from exc
     for name, body, ctype in files:
         store.put_new(settings.models_bucket, prefix + name, body, ctype, meta)
     run = TrainingRun(version, base_weights, out.metrics, prefix + "best.pt", prefix + "best.onnx")

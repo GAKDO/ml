@@ -206,6 +206,7 @@ def load_detector(env: Mapping[str, str],
             log.warning("TRACE_DETECT_WEIGHTS·TRACE_MODEL_DIR가 없어 폰 탐지를 건너뜀(detector-pending)")
         return NullDetector()
     info = ModelInfo.load(weights.parent / "model.json")
-    log.info("폰 탐지 모델 %s (%s)", info.model_version, weights.name)
     infer = make_infer(weights) if make_infer else default_infer(weights, env)
+    # 모델을 다 연 뒤에 남긴다: 배포 스크립트(deploy-server.sh)가 이 줄로 교체 성공을 확인한다
+    log.info("폰 탐지 모델 %s (%s)", info.model_version, weights.name)
     return TiledDetector(infer, info)
