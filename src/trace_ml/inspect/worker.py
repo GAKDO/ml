@@ -222,6 +222,8 @@ def process(req: InspectRequest, store: Store, config: WorkerConfig, detector: D
             continue
         result = align_photo(image, face_size_px(photo.face, dims))
         if isinstance(result, AlignFailure):
+            # 판정 불가 면 원인을 서버 로그에서 바로 보려고 사유를 남긴다(11/9 옆면 정합 실패 조사)
+            log.warning("사진 %s(%s) 정합 실패: %s", photo.photo_id, photo.face, result.reason)
             failed.append({"photoId": photo.photo_id, "reason": result.reason})
             progress.report(req, "ALIGN", index, total)
             continue
