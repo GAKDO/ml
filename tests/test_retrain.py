@@ -158,12 +158,23 @@ def test_배포_묶음을_쓰다_실패하면_레지스트리는_그대로이고
     model = _model(tmp_path / "v004", "v004")
 
     def broken(*_args, **_kwargs):
-        (reg_path.parent / "releases" / "v004").mkdir(parents=True)
+        out = reg_path.parent / "releases" / "v004"
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "best.onnx").write_bytes(b"half")
         raise OSError("디스크 가득 참")
 
     monkeypatch.setattr(retrain_cli, "write_release", broken)
     assert main(["retrain", "promote", "--model-dir", str(model)], env=env) == 1
     assert not reg_path.exists() and not (reg_path.parent / "releases" / "v004").exists()
+    monkeypatch.undo()
+
+    # 묶음은 썼지만 레지스트리 저장이 실패해도 묶음을 치우고 다시 돌릴 수 있다
+    def add_fails(self, entry):
+        raise OSError("레지스트리 쓰기 실패")
+
+    monkeypatch.setattr(ModelRegistry, "add", add_fails)
+    assert main(["retrain", "promote", "--model-dir", str(model)], env=env) == 1
+    assert not (reg_path.parent / "releases" / "v004").exists()
     monkeypatch.undo()
     assert main(["retrain", "promote", "--model-dir", str(model)], env=env) == 0
     assert ModelRegistry(reg_path).current().modelVersion == "v004"
