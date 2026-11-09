@@ -101,9 +101,19 @@ def _num(v: Any) -> float:
     return -1.0 if v is None else float(v)
 
 
-def gate(baseline: Path, candidate: Path, *, min_recall_gain: float = 0.0, now: Now = _now) -> dict[str, Any]:
-    """나빠진 항목이 하나도 없고, 하나 이상 좋아졌을 때만 통과. 결과 dict는 그대로 gate.json이 된다."""
+def gate(baseline: Path, candidate: Path, *, min_recall_gain: float = 0.0, model_dir: Path | None = None,
+         now: Now = _now) -> dict[str, Any]:
+    """나빠진 항목이 하나도 없고, 하나 이상 좋아졌을 때만 통과. 결과 dict는 그대로 gate.json이 된다.
+
+    model_dir(배포할 best.onnx·model.json)를 주면 그 ONNX 해시를 남겨, promote가 다른 ONNX를 올리지 못하게 한다.
+    """
     a, b = _load(baseline), _load(candidate)
+    onnx_sha = None
+    if model_dir is not None:
+        version, onnx, _ = model_files(model_dir)
+        if version != b.get("model_version"):
+            raise RetrainError(f"model.json {version}과 후보 평가 modelVersion {b.get('model_version')}이 다름")
+        onnx_sha = sha256(onnx)
     if not b.get("model_version"):
         raise RetrainError("후보 평가에 modelVersion이 없음: evaluate --model-version <model.json 값>으로 다시 재세요")
     mismatch = _same_data(a, b)
@@ -130,7 +140,7 @@ def gate(baseline: Path, candidate: Path, *, min_recall_gain: float = 0.0, now: 
         "baseline": {"modelVersion": a.get("model_version"), "weightsSha256": a.get("weights_sha256"),
                      "file": str(baseline)},
         "candidate": {"modelVersion": b["model_version"], "weightsSha256": b.get("weights_sha256"),
-                      "file": str(candidate)},
+                      "onnxSha256": onnx_sha, "file": str(candidate)},
         "checks": checks,
     }
 
@@ -214,6 +224,10 @@ def promote(registry: ModelRegistry, model_dir: Path, *, gate_doc: dict[str, Any
             raise RetrainError("게이트를 통과하지 못한 모델은 올리지 않음")
         if gate_doc["candidate"]["modelVersion"] != version:
             raise RetrainError(f"게이트 후보 {gate_doc['candidate']['modelVersion']}와 model.json {version}이 다름")
+        expected = gate_doc["candidate"].get("onnxSha256")
+        if not expected or expected != sha256(onnx):
+            raise RetrainError("게이트에 적힌 ONNX 해시가 없거나 이 best.onnx와 다름:"
+                               " retrain gate --model-dir <이 폴더>로 다시 판정하세요")
         if cur is None or gate_doc["baseline"]["modelVersion"] != cur.modelVersion:
             raise RetrainError(f"게이트 기준 모델이 현재 모델({cur.modelVersion if cur else '없음'})이 아님:"
                                " 현재 모델 가중치로 evaluate --model-version을 다시 재세요")

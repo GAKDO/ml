@@ -87,8 +87,9 @@ def test_게이트_없이는_처음_한_번만_올리고_기준이_현재_모델
         promote(reg, _model(tmp_path / "v005", "v005"), gate_doc=None)
     a = _report(tmp_path / "a.json", "v003", acc=0.8, fp=1, fn=0, recall=0.5, precision=0.6)
     b = _report(tmp_path / "b.json", "v005", acc=1.0, fp=0, fn=0, recall=0.6, precision=0.6)
+    v005 = tmp_path / "v005"
     with pytest.raises(RetrainError, match="현재 모델"):
-        promote(reg, tmp_path / "v005", gate_doc=gate(a, b))
+        promote(reg, v005, gate_doc=gate(a, b, model_dir=v005))
     assert reg.current().modelVersion == "v004"
 
 
@@ -97,7 +98,8 @@ def test_되돌리면_앞_모델이_현재가_되고_이력은_남는다(tmp_pat
     promote(reg, _model(tmp_path / "v004", "v004"), gate_doc=None)
     a = _report(tmp_path / "a.json", "v004", acc=0.8, fp=1, fn=0, recall=0.5, precision=0.6)
     b = _report(tmp_path / "b.json", "v005", acc=1.0, fp=0, fn=0, recall=0.6, precision=0.6)
-    promote(reg, _model(tmp_path / "v005", "v005"), gate_doc=gate(a, b))
+    v005 = _model(tmp_path / "v005", "v005")
+    promote(reg, v005, gate_doc=gate(a, b, model_dir=v005))
     assert rollback(reg).modelVersion == "v004"
     assert [e.kind for e in reg.history()] == ["BOOTSTRAP", "PROMOTE", "ROLLBACK"]
     with pytest.raises(RetrainError):
@@ -112,9 +114,10 @@ def test_명령으로_올린_모델은_서버와_Jetson에_같은_해시로_들�
     assert main(["retrain", "promote", "--model-dir", str(_model(tmp_path / "v004", "v004"))], env=env) == 0
     a = _report(tmp_path / "a.json", "v004", acc=0.8, fp=1, fn=0, recall=0.5, precision=0.6)
     b = _report(tmp_path / "b.json", "v005", acc=1.0, fp=0, fn=0, recall=0.6, precision=0.6)
-    assert main(["retrain", "gate", "--baseline", str(a), "--candidate", str(b), "--out",
+    v005 = _model(tmp_path / "v005", "v005")
+    assert main(["retrain", "gate", "--baseline", str(a), "--candidate", str(b), "--model-dir", str(v005), "--out",
                  str(tmp_path / "gate.json")], env=env) == 0
-    assert main(["retrain", "promote", "--model-dir", str(_model(tmp_path / "v005", "v005")),
+    assert main(["retrain", "promote", "--model-dir", str(v005),
                  "--gate", str(tmp_path / "gate.json")], env=env) == 0
     release = reg_path.parent / "releases" / "v005"
 
@@ -188,3 +191,17 @@ def test_기준에_도달하면_웹훅으로_한_번_알리고_주소가_없으�
     assert payload("https://hooks.slack.com/services/x", "hi") == {"text": "hi"}
     assert notify({}, "hi").startswith("알림 건너뜀")
     assert notify({"TRACE_ALERT_WEBHOOK_URL": "u"}, "hi", post=lambda u, p: 500) == "알림 실패: HTTP 500"
+
+
+def test_게이트_뒤에_ONNX가_바뀌면_올리지_않는다(tmp_path):
+    reg = ModelRegistry(tmp_path / "registry.json")
+    promote(reg, _model(tmp_path / "v004", "v004"), gate_doc=None)
+    a = _report(tmp_path / "a.json", "v004", acc=0.8, fp=1, fn=0, recall=0.5, precision=0.6)
+    b = _report(tmp_path / "b.json", "v005", acc=1.0, fp=0, fn=0, recall=0.6, precision=0.6)
+    v005 = _model(tmp_path / "v005", "v005")
+    doc = gate(a, b, model_dir=v005)
+    (v005 / "best.onnx").write_bytes(b"other")
+    with pytest.raises(RetrainError, match="ONNX 해시"):
+        promote(reg, v005, gate_doc=doc)
+    with pytest.raises(RetrainError, match="ONNX 해시"):
+        promote(reg, v005, gate_doc=gate(a, b))  # 모델 폴더 없이 낸 게이트

@@ -36,6 +36,8 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     g.add_argument("--baseline", type=Path, required=True, help="현재 모델 evaluate JSON")
     g.add_argument("--candidate", type=Path, required=True, help="새 모델 evaluate JSON(--model-version 필수)")
     g.add_argument("--min-recall-gain", type=float, default=0.0, help="사진 재현율이 이만큼 이상 올라야 통과")
+    g.add_argument("--model-dir", type=Path, required=True,
+                   help="배포할 새 모델 폴더(best.onnx·model.json). ONNX 해시를 gate.json에 남긴다")
     g.add_argument("--out", type=Path, required=True, help="gate.json")
     p = c.add_parser("promote", help="게이트를 통과한 모델을 현재 모델로 올리고 서버·Jetson 배포 묶음을 만든다")
     p.add_argument("--model-dir", type=Path, required=True, help="best.onnx·model.json 폴더(train의 registered/ 등)")
@@ -91,7 +93,7 @@ def _run(args: argparse.Namespace, env: Mapping[str, str], post: Post | None = N
     if args.command == "gate":
         if args.out.exists():
             raise RetrainError(f"결과 파일이 이미 있음(덮어쓰지 않음): {args.out}")
-        doc = gate(args.baseline, args.candidate, min_recall_gain=args.min_recall_gain)
+        doc = gate(args.baseline, args.candidate, min_recall_gain=args.min_recall_gain, model_dir=args.model_dir)
         for ch in doc["checks"]:
             mark = "통과" if ch["ok"] else "실패"
             vals = "" if ch["baseline"] is None else f" {ch['baseline']} → {ch['candidate']}"
