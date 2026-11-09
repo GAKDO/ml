@@ -13,6 +13,7 @@ from pathlib import Path
 from ..dataset.review_cli import _date, _source
 from ..dataset.review_export import ReviewExportError
 from ..labelstudio.config import ConfigError
+from .notify import Post, notify
 from .pipeline import Entry, ModelRegistry, RetrainError, count, gate, model_files, promote, rollback
 from .release import write_release
 
@@ -29,6 +30,8 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     s.add_argument("--min-photos", type=int, default=120, help="재학습 기준: 새로 검수된 사진 수")
     s.add_argument("--min-confirmed", type=int, default=20, help="재학습 기준: 새로 확정된 흠집 수")
     s.add_argument("--json", action="store_true", help="결과를 JSON 한 줄로(예약 작업용)")
+    s.add_argument("--notify", action="store_true",
+                   help="기준에 도달하면 TRACE_ALERT_WEBHOOK_URL(Discord·Slack 웹훅)로 운영자에게 알린다")
     g = c.add_parser("gate", help="같은 val로 잰 evaluate 두 개를 비교해 새 모델이 나을 때만 통과")
     g.add_argument("--baseline", type=Path, required=True, help="현재 모델 evaluate JSON")
     g.add_argument("--candidate", type=Path, required=True, help="새 모델 evaluate JSON(--model-version 필수)")
@@ -39,6 +42,7 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--gate", type=Path, help="gate.json. 처음(레지스트리가 빌 때) 지금 모델을 올릴 때만 생략")
     p.add_argument("--reviews", type=Path, help="이번 학습에 쓴 review export 폴더(다음 status의 기준 시각)")
     p.add_argument("--metrics", help="MODEL_METRICS 값(예: 0.216/0.073). 릴리스에 함께 적는다")
+    p.add_argument("--notify", action="store_true", help="올린 뒤 웹훅으로 배포할 버전을 알린다")
     c.add_parser("rollback", help="현재 모델을 바로 앞 모델로 되돌린다(그 릴리스를 다시 배포)")
     c.add_parser("current", help="현재 모델과 교체 이력")
 
@@ -48,9 +52,9 @@ def _registry(args: argparse.Namespace, env: Mapping[str, str]) -> ModelRegistry
     return ModelRegistry(path)
 
 
-def run(args: argparse.Namespace, env: Mapping[str, str]) -> int:
+def run(args: argparse.Namespace, env: Mapping[str, str], post: Post | None = None) -> int:
     try:
-        return _run(args, env)
+        return _run(args, env, post)
     except ConfigError as exc:
         print(f"설정 오류: {exc}", file=sys.stderr)
         return 2
@@ -59,18 +63,26 @@ def run(args: argparse.Namespace, env: Mapping[str, str]) -> int:
         return 1
 
 
-def _run(args: argparse.Namespace, env: Mapping[str, str]) -> int:
+def _alert(args: argparse.Namespace, env: Mapping[str, str], post: Post | None, text: str) -> None:
+    if getattr(args, "notify", False):
+        print(notify(env, f"[TRACE 모델] {text}", **({"post": post} if post else {})))
+
+
+def _run(args: argparse.Namespace, env: Mapping[str, str], post: Post | None = None) -> int:
     reg = _registry(args, env)
     if args.command == "status":
         since = args.since or reg.last_reviews_until()
         st = count(_source(args, env).photos(None), since, min_photos=args.min_photos,
                    min_confirmed=args.min_confirmed)
+        summary = (f"{st.since or '처음'} 이후 검수: 세트 {st.sets} · 사진 {st.photos}/{st.min_photos}"
+                   f" · 흠집 맞음 {st.confirmed}/{st.min_confirmed} · 흠집 아님 {st.dismissed}")
+        if st.ready:
+            _alert(args, env, post, f"재학습 기준 도달. {summary}. 집 PC에서 review export → train → gate 순서로 진행")
         if args.json:
             print(json.dumps({"ready": st.ready, "since": st.since, "photos": st.photos, "sets": st.sets,
                               "confirmed": st.confirmed, "dismissed": st.dismissed}, ensure_ascii=False))
             return 0
-        print(f"{st.since or '처음'} 이후 검수: 세트 {st.sets} · 사진 {st.photos}/{st.min_photos}"
-              f" · 흠집 맞음 {st.confirmed}/{st.min_confirmed} · 흠집 아님 {st.dismissed}")
+        print(summary)
         if st.ready:
             print("재학습 기준 도달: deploy/training/README의 '재학습 파이프라인' 2단계부터 진행하세요")
         else:
@@ -108,6 +120,8 @@ def _run(args: argparse.Namespace, env: Mapping[str, str]) -> int:
         print("  학교 서버: scp -r 이 폴더 → bash deploy-server.sh")
         print("  부스 Jetson: 같은 폴더 → bash deploy-jetson.sh")
         print("  두 곳 모두 '확인 끝'과 같은 해시 앞자리가 나와야 끝(모델 일치 원칙)")
+        _alert(args, env, post, f"새 모델 {entry.modelVersion} 등록(앞 {entry.previous or '없음'}, onnx {entry.onnxSha256[:12]})."
+               " 학교 서버와 부스 Jetson에 같은 묶음을 배포하세요")
         return 0
     if args.command == "rollback":
         entry = rollback(reg)

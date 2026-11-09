@@ -282,6 +282,8 @@ trace-ml retrain status --rows reviews.csv            # 기본 기준: 새 검�
 
 지난 재학습에 쓴 마지막 검수 시각 뒤만 셉니다. "재학습 기준 도달"이 나오면 2단계로 갑니다.
 
+운영자 알림: `TRACE_ALERT_WEBHOOK_URL`(Discord 또는 Slack 웹훅, 주소는 `.env`에만)을 두고 `--notify`를 붙이면 기준에 도달했을 때 한 번 알립니다. `retrain promote --notify`는 등록한 버전과 해시 앞자리를 알립니다. 발송은 `trace_ml.retrain.notify.notify()` 함수 하나라 다른 알림도 이걸 쓰면 됩니다. Windows 작업 스케줄러로 매일 `review sql` CSV를 받아 `retrain status --notify`를 돌리면 사람이 확인하지 않아도 됩니다.
+
 ### 2. 내보내기 → 이어 학습
 
 ```powershell
@@ -318,6 +320,11 @@ trace-ml retrain promote --model-dir <새 run>\registered --gate gate.json --rev
 | 부스 jetson2 | `bash deploy-jetson.sh` | 해시 확인 → `~/trace-models/<버전>`에 엔진 빌드 → `~/trace-models/current` 연결 → `TRACE_BOOTH_ENGINE=~/trace-models/current/best.engine`으로 serve 재시작 |
 
 두 곳 모두 `확인 끝: <버전> (<해시 앞 12자>)`이 같아야 끝입니다. 한쪽이 실패하면 다른 쪽도 앞 모델로 되돌려 두 곳을 맞춥니다.
+
+### 향후 과제
+
+- 웹 관리자 화면에 "재학습 기준까지 N장" 표시(capture-server 검수 집계 API, 계약 추가 필요)
+- 검수 대기열이 쌓였을 때·리포트 생성 실패(DLQ) 때 같은 웹훅으로 알림(각 서버에서 같은 발송 방식 재사용)
 
 ### 되돌리기
 

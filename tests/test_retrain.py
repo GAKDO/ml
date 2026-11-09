@@ -160,3 +160,27 @@ def test_배포_묶음을_쓰다_실패하면_레지스트리는_그대로이고
     monkeypatch.undo()
     assert main(["retrain", "promote", "--model-dir", str(model)], env=env) == 0
     assert ModelRegistry(reg_path).current().modelVersion == "v004"
+
+
+def test_기준에_도달하면_웹훅으로_한_번_알리고_주소가_없으면_건너뛴다(tmp_path, capsys):
+    from trace_ml.retrain import cli as retrain_cli
+    from trace_ml.retrain.notify import notify, payload
+
+    sent: list[tuple[str, dict]] = []
+    rows = tmp_path / "reviews.csv"
+    header = ",".join(f"c{i}" for i in range(17))
+    lines = [f"P{i},S1,R1,TOP,L1,CAM1,k{i}.jpg,2026-11-09T01:00:00+00:00,D{i},dent,\"[[0,0],[1,0],[1,1]]\","
+             f"0.3,v004,CONFIRMED,,SN1,A1" for i in range(3)]
+    rows.write_text("\n".join([header, *lines]) + "\n", encoding="utf-8")
+    env = {"TRACE_MODEL_REGISTRY": str(tmp_path / "r.json"), "TRACE_ALERT_WEBHOOK_URL": "https://discord.example/x"}
+    args = ["retrain", "status", "--rows", str(rows), "--min-photos", "3", "--min-confirmed", "3", "--notify"]
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    retrain_cli.add_parsers(parser.add_subparsers(dest="tool"))
+    assert retrain_cli.run(parser.parse_args(args), env, post=lambda u, p: sent.append((u, p)) or 204) == 0
+    assert len(sent) == 1 and "재학습 기준 도달" in sent[0][1]["content"]
+    assert "알림 보냄" in capsys.readouterr().out
+    assert payload("https://hooks.slack.com/services/x", "hi") == {"text": "hi"}
+    assert notify({}, "hi").startswith("알림 건너뜀")
+    assert notify({"TRACE_ALERT_WEBHOOK_URL": "u"}, "hi", post=lambda u, p: 500) == "알림 실패: HTTP 500"
