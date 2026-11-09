@@ -176,8 +176,19 @@ def test_배포_묶음을_쓰다_실패하면_레지스트리는_그대로이고
     assert main(["retrain", "promote", "--model-dir", str(model)], env=env) == 1
     assert not (reg_path.parent / "releases" / "v004").exists()
     monkeypatch.undo()
-    assert main(["retrain", "promote", "--model-dir", str(model)], env=env) == 0
+
+    # 레지스트리에 들어간 뒤 오류가 나면 등록된 묶음은 지우지 않는다
+    original = ModelRegistry.add
+
+    def add_then_fail(self, entry):
+        original(self, entry)
+        raise OSError("기록 뒤 오류")
+
+    monkeypatch.setattr(ModelRegistry, "add", add_then_fail)
+    assert main(["retrain", "promote", "--model-dir", str(model)], env=env) == 1
+    monkeypatch.undo()
     assert ModelRegistry(reg_path).current().modelVersion == "v004"
+    assert (reg_path.parent / "releases" / "v004" / "deploy-server.sh").is_file()
 
 
 def test_기준에_도달하면_웹훅으로_한_번_알리고_주소가_없으면_건너뛴다(tmp_path, capsys):
