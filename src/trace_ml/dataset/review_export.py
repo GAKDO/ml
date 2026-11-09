@@ -33,7 +33,7 @@ _SAFE = re.compile(r"[^A-Za-z0-9_-]")
 
 QUERY = """
 select p.public_id, cs.public_id, cs.rental_id, p.face, p.light, p.camera, p.object_key,
-       to_json(cs.review_completed_at) #>> '{{}}', d.public_id, d.class, d.polygon::text, d.confidence, d.model_version,
+       to_json(cs.review_completed_at) #>> '{{}}', d.public_id, d.class, d.photo_polygon::text, d.confidence, d.model_version,
        d.review_status, d.dismiss_reason, dv.serial, dv.asset_no
   from capture.capture_set cs
   join capture.photo p on p.capture_set_id = cs.id

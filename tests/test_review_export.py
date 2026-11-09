@@ -268,3 +268,10 @@ def test_review_sql은_명령을_보이고_export는_CSV와_가짜_저장소로_
     assert "흠집 라벨 1" in printed and "--extra-train" in printed
     img = cv2.imread(str(next((tmp_path / "rv" / "images" / "train").glob("*.jpg"))))
     assert isinstance(img, np.ndarray) and img.shape[:2] == (1080, 1920)
+
+
+def test_SQL은_표준_좌표가_아니라_원본_사진_px_흠집을_읽고_사람이_직접_표시한_흠집도_빼지_않는다():
+    # 빠른 검사 흠집은 defect.polygon(표준 좌표)이 비어 있거나 다른 좌표계다. 사진 라벨은 photo_polygon(원본 px)으로 만든다(11/9)
+    cmd = psql_command(None)
+    assert "d.photo_polygon::text" in cmd and "d.polygon::text" not in cmd
+    assert "d.source" not in cmd  # AI가 놓쳐 관리자가 직접 표시한 흠집(HUMAN·CONFIRMED)도 흠집 맞음으로 내보낸다
