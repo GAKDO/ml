@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -129,15 +130,22 @@ def train(store: Store, registry: Registry, settings: MinioSettings, version: st
     # 따로 학습한 폴더든 trace-ml train 실행 폴더든 registered/에 두어 retrain promote --model-dir로 바로 쓴다
     local = (imported_from or cache_dir / "runs" / run_name) / "registered"
     try:
-        local.mkdir(parents=True, exist_ok=True)
-        staged = []
+        # 새 폴더에 두 파일을 다 쓴 뒤 폴더째 바꾼다. 중간에 끊겨도 옛 짝(registered.old)이나 새 짝만 남고 섞이지 않는다
+        fresh, old = local.with_name("registered.tmp"), local.with_name("registered.old")
+        if old.exists() and not local.exists():  # 지난번에 두 이름 바꾸기 사이에서 끊겼으면 옛 짝을 되살린다
+            old.replace(local)
+        for leftover in (fresh, old):
+            if leftover.exists():
+                shutil.rmtree(leftover)
+        fresh.mkdir(parents=True)
         for name, body, _ in files:
             if name in ("best.onnx", "model.json"):
-                tmp = local / f"{name}.tmp"
-                tmp.write_bytes(body)
-                staged.append((tmp, local / name))
-        for tmp, dst in staged:  # 두 파일을 다 쓴 뒤에만 바꿔, 새 ONNX와 옛 model.json이 섞이지 않게 한다
-            tmp.replace(dst)
+                (fresh / name).write_bytes(body)
+        if local.exists():
+            local.replace(old)
+        fresh.replace(local)
+        if old.exists():
+            shutil.rmtree(old)
     except OSError as exc:
         raise ConfigError(f"{local}에 쓰지 못함: {exc}") from exc
     for name, body, ctype in files:
