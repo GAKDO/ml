@@ -63,6 +63,10 @@ def test_v001로_학습하면_trace_models에_가중치_ONNX_지표_run_json이_
     assert (run["datasetVersion"], run["manifestSha256"], run["builderCommit"]) == ("v001", manifest_sha, "c" * 40)
     meta = w.s3.objects[("trace-models", result.prefix + "best.onnx")][1]
     assert meta == {"trace-dataset-version": "v001", "trace-manifest-sha256": manifest_sha}
+    # 재학습 파이프라인(retrain promote --model-dir)이 쓸 수 있게 실행 폴더에도 같은 ONNX·model.json을 둔다
+    local = tmp_path / "runs" / "20261106T010000Z" / "registered"
+    assert (local / "best.onnx").read_bytes() == b"onnx"
+    assert (local / "model.json").read_bytes() == w.s3.objects[("trace-models", result.prefix + "model.json")][0]
 
 
 def test_받은_폴더는_YOLO_분할_구조이고_data_yaml이_그_폴더를_가리킨다(tmp_path):

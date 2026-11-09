@@ -36,6 +36,7 @@ from .labelstudio import setup as ls_setup
 from .labelstudio.client import LabelStudio, LabelStudioError
 from .labelstudio.config import ConfigError, Settings, load_settings
 from .pretrain import cli as pretrain_cli
+from .retrain import cli as retrain_cli
 from .store import StoreError
 from .training import cli as training_cli
 
@@ -118,6 +119,7 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
     training_cli.add_parsers(sub)
     inspect_cli.add_parsers(sub)
     pretrain_cli.add_parsers(sub)
+    retrain_cli.add_parsers(sub)
     args = parser.parse_args(args_list)
     environ = os.environ if env is None else env
     if args.tool == "labelstudio":
@@ -126,6 +128,8 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None,
         return inspect_cli.run(args, environ)
     if args.tool == "review":
         return review_cli.run(args, environ)
+    if args.tool == "retrain":
+        return retrain_cli.run(args, environ)
     if args.tool == "pretrain":
         return pretrain_cli.run(args)
     if args.tool == "rehearse":

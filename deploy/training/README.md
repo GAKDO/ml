@@ -248,6 +248,84 @@ yolo segment predict model=D:\trace\cache\runs\<실행>\weights\best.pt source=D
 
 `best.onnx`는 입력 1×3×640×640 고정, opset 17, FP32입니다. jetson2가 trace-jetson 키(trace-models 읽기 전용)로 `best.onnx`(또는 `best.pt`)와 `model.json`을 받아 TensorRT FP16 엔진을 직접 빌드합니다. `model.json`은 엔진 옆에 그대로 둡니다(`modelVersion` = `yolo11s-seg-v001-<실행>-trt-fp16`, 실행마다 다름).
 
+## 9. 재학습 파이프라인 (검수 데이터로 모델 버전 올리기)
+
+출고·수령·반납에서 AI가 넓게 잡고 관리자가 확정·기각한 결과가 쌓이면, 그 데이터로 다시 학습해 **지금 모델보다 나을 때만** 버전을 올립니다. 학습은 집 PC에서만, 교체는 학교 서버와 부스 Jetson을 **같은 파일로 동시에** 합니다.
+
+```
+검수 누적 ─▶ status(기준 도달?) ─▶ review export ─▶ train --base 현재 best.pt --extra-train
+   ▲                                                         │
+   │                                                evaluate(현재·새 모델, 같은 val)
+   │                                                         │
+   └── 불통과면 현재 모델 유지 ◀── gate ──통과──▶ promote(레지스트리 + 배포 묶음)
+                                                              │
+                                        deploy-server.sh ◀────┴────▶ deploy-jetson.sh
+                                         (같은 해시 확인)            (같은 해시 확인)
+```
+
+레지스트리는 `TRACE_MODEL_REGISTRY`(권장 `D:\trace\models\registry.json`) 파일 하나입니다. 지금 쓰는 모델과 교체 이력을 남기고, 지우지 않고 더하기만 합니다. 배포 묶음은 같은 폴더의 `releases\<modelVersion>\`에 생깁니다.
+
+### 0. 처음 한 번: 지금 모델(v004)을 기준으로 올리기
+
+```powershell
+$env:TRACE_MODEL_REGISTRY = "D:\trace\models\registry.json"
+trace-ml retrain promote --model-dir D:\trace\v004-registered --metrics 0.216/0.073
+```
+
+### 1. 쌓였는지 보기
+
+학교 서버에서 `trace-ml review sql`이 보여 주는 명령으로 `reviews.csv`를 뽑아 집 PC로 가져온 뒤:
+
+```powershell
+trace-ml retrain status --rows reviews.csv            # 기본 기준: 새 검수 사진 120장 + 흠집 맞음 20개
+```
+
+지난 재학습에 쓴 마지막 검수 시각 뒤만 셉니다. "재학습 기준 도달"이 나오면 2단계로 갑니다.
+
+### 2. 내보내기 → 이어 학습
+
+```powershell
+trace-ml review export --rows reviews.csv --out D:\trace\cache\review-20261112   # --since 없이: 지금까지 검수 전부
+$cur = "<캐시>\runs\20261108T162837Z"      # 지금 모델(v004) 실행 폴더. 캐시는 --cache(기본 %USERPROFILE%\.cache\trace-ml)
+trace-ml train v004 --tile 640 --base $cur\weights\best.pt --model-name yolo11m-aihub-rv `
+  --extra-train D:\trace\cache\review-20261112 --set degrees=15 --set flipud=0.5 --set scale=0.7 --set hsv_v=0.6
+```
+
+`--base`에 지금 모델 가중치를 주면 처음부터가 아니라 이어서 학습합니다. 검수분은 train에만 들어가고, 데이터셋 VAL·TEST 기기 사진은 자동으로 빠집니다. 끝에 나온 `부스·서버로 옮길 파일: …\registered`를 적어 둡니다(새 실행 폴더 = `<새 run>`).
+
+### 3. 같은 val로 두 모델 재기 → 게이트
+
+```powershell
+$data = "<캐시>\datasets\v004-tile640"   # 검수분을 섞지 않은 원래 val. 두 모델 모두 이것으로
+trace-ml evaluate --weights $cur\weights\best.pt --data $data --model-version <현재 modelVersion> --out eval-cur.json
+trace-ml evaluate --weights <새 run>\weights\best.pt --data $data --model-version <새 model.json modelVersion> --out eval-new.json
+trace-ml retrain gate --baseline eval-cur.json --candidate eval-new.json --out gate.json
+```
+
+통과 조건: 기기 면 정확도·깨끗한 면 오탐·놓친 흠집 면·사진 재현율이 하나도 나빠지지 않고(정밀도는 0.05까지 허용) 하나 이상 좋아질 것. 평가 조건(split·conf·기기 면 수)이 다르면 비교하지 않고 멈춥니다. 불통과면 여기서 끝, 지금 모델을 그대로 씁니다.
+
+### 4. 올리기 → 서버·Jetson 동시 교체
+
+```powershell
+trace-ml retrain promote --model-dir <새 run>\registered --gate gate.json --reviews D:\trace\cache\review-20261112 --metrics <box>/<mask>
+```
+
+`releases\<버전>\` 폴더를 두 곳에 그대로 옮겨 각각 돌립니다.
+
+| 어디 | 명령 | 하는 일 |
+| --- | --- | --- |
+| 학교 서버 | `bash deploy-server.sh` | 해시 확인 → 지금 모델을 `models-previous/`로 → `models/`에 복사 → inspect-worker 재시작 → 로그에서 새 버전 확인 |
+| 부스 jetson2 | `bash deploy-jetson.sh` | 해시 확인 → `~/trace-models/<버전>`에 엔진 빌드 → `~/trace-models/current` 연결 → `TRACE_BOOTH_ENGINE=~/trace-models/current/best.engine`으로 serve 재시작 |
+
+두 곳 모두 `확인 끝: <버전> (<해시 앞 12자>)`이 같아야 끝입니다. 한쪽이 실패하면 다른 쪽도 앞 모델로 되돌려 두 곳을 맞춥니다.
+
+### 되돌리기
+
+```powershell
+trace-ml retrain rollback      # 현재 모델을 앞 모델로. 출력된 releases 폴더를 두 곳에 다시 배포
+trace-ml retrain current       # 현재 모델과 이력
+```
+
 ## 막히면
 
 | 증상 | 할 일 |

@@ -205,8 +205,8 @@ def run(args: argparse.Namespace, deps: Deps) -> int:
                        batch=args.batch, extra=train_extra(args), model_name=args.model_name,
                        extra_train=args.extra_train, imported_from=from_run)
         print(f"학습 기록: {args.version} → {result.prefix} (best.pt·best.onnx·model.json·metrics.json·run.json)")
-        if from_run:
-            print(f"부스·서버로 옮길 파일: {from_run / 'registered'} (best.onnx·model.json)")
+        local = from_run or (args.cache / "runs" / result.run_name)
+        print(f"부스·서버로 옮길 파일: {local / 'registered'} (best.onnx·model.json, retrain promote --model-dir)")
         return 0
     except FetchError as exc:
         print(f"학습 중단: {exc}", file=sys.stderr)
