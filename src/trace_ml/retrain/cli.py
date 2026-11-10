@@ -13,6 +13,7 @@ from pathlib import Path
 from ..dataset.review_cli import _date, _source
 from ..dataset.review_export import ReviewExportError
 from ..labelstudio.config import ConfigError
+from .auto import AutoConfig, auto, deploy
 from .notify import Post, notify
 from .pipeline import Entry, ModelRegistry, RetrainError, count, gate, model_files, promote, rollback
 from .release import write_release
@@ -45,6 +46,10 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--reviews", type=Path, help="이번 학습에 쓴 review export 폴더(다음 status의 기준 시각)")
     p.add_argument("--metrics", help="MODEL_METRICS 값(예: 0.216/0.073). 릴리스에 함께 적는다")
     p.add_argument("--notify", action="store_true", help="올린 뒤 웹훅으로 배포할 버전을 알린다")
+    a = c.add_parser("auto", help="예약 실행용: 검수 받기→기준 확인→내보내기→학습→평가→게이트→등록을 한 번에(배포 전까지)")
+    a.add_argument("--config", type=Path, help="자동 재학습 설정 JSON(기본: 레지스트리 옆 auto.json)")
+    d = c.add_parser("deploy", help="승인: 현재 모델 묶음을 학교 서버·Jetson에 올리고 두 곳 해시 일치 확인")
+    d.add_argument("--config", type=Path, help="자동 재학습 설정 JSON(기본: 레지스트리 옆 auto.json)")
     c.add_parser("rollback", help="현재 모델을 바로 앞 모델로 되돌린다(그 릴리스를 다시 배포)")
     c.add_parser("current", help="현재 모델과 교체 이력")
 
@@ -72,6 +77,17 @@ def _alert(args: argparse.Namespace, env: Mapping[str, str], post: Post | None, 
 
 def _run(args: argparse.Namespace, env: Mapping[str, str], post: Post | None = None) -> int:
     reg = _registry(args, env)
+    if args.command in ("auto", "deploy"):
+        cfg = AutoConfig.load(args.config or reg.path.parent / "auto.json")
+        if args.command == "auto":
+            status, report = auto(cfg, reg, env, **({"post": post} if post else {}))
+            print(f"자동 재학습 {status}: {report.with_suffix('.md')}")
+            return 1 if status == "FAILED" else 0
+        res = deploy(cfg, reg, env, **({"post": post} if post else {}))
+        for name, r in res["targets"].items():
+            print(f"  [{'성공' if r['ok'] else '실패'}] {name} {r['seconds']}초: {r['detail']}")
+        print(res["message"])
+        return 0 if res["matched"] else 1
     if args.command == "status":
         since = args.since or reg.last_reviews_until()
         st = count(_source(args, env).photos(None), since, min_photos=args.min_photos,

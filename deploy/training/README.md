@@ -322,6 +322,46 @@ trace-ml retrain promote --model-dir <새 run>\registered --gate gate.json --rev
 
 두 곳 모두 `확인 끝: <버전> (<해시 앞 12자>)`이 같아야 끝입니다. 한쪽이 실패해도 자동으로 되돌리지 않습니다(실패한 쪽에도 새 파일이 남음). 아래 되돌리기 절차로 앞 모델 묶음을 두 곳 모두에 다시 배포해 맞춥니다.
 
+### 5. 자동으로 돌리기 (`retrain auto` + 승인 `retrain deploy`)
+
+1~4단계를 사람이 잇지 않게, 집 PC 예약 작업 하나가 검수 CSV 받기 → 기준 확인 → 내보내기 → 이어 학습 → 두 모델 평가 → 게이트 → 등록·배포 묶음까지 합니다. 배포만 사람이 한 번 승인합니다(AI 후보 → 사람 확정 원칙을 모델 교체에도 적용).
+
+`D:\trace\models\auto.json`(레지스트리 옆, 비밀값 없음):
+
+```json
+{
+  "dataset": "v004",
+  "evalData": "C:\\Users\\<나>\\.cache\\trace-ml\\datasets\\v004-tile640",
+  "baseWeights": "C:\\Users\\<나>\\.cache\\trace-ml\\runs\\20261108T162837Z\\weights\\best.pt",
+  "workRoot": "D:\\trace\\retrain",
+  "modelName": "yolo11m-aihub-rv",
+  "trainArgs": ["--tile", "640", "--set", "degrees=15", "--set", "flipud=0.5", "--set", "scale=0.7", "--set", "hsv_v=0.6"],
+  "reviewSsh": {"host": "AIGJ_01_002@s2.java21.net", "port": 8822},
+  "server": {"host": "AIGJ_01_002@s2.java21.net", "port": 8822},
+  "jetson": {"host": "minseo@100.69.198.93"}
+}
+```
+
+- `baseWeights`는 처음(지금 모델 v004) 것만 적습니다. 새 모델이 올라가면 `auto-state.json`이 그 가중치를 기억해 다음엔 거기서 이어 학습합니다.
+- ssh는 **키 로그인**이어야 합니다(예약 작업은 비밀번호를 칠 수 없음). Jetson은 `minseo` 계정에 키를 넣어야 `mskim → su → sudo` 없이 들어갑니다.
+
+```powershell
+# 집 PC PowerShell (venv 켠 창)
+trace-ml retrain auto      # 한 번 돌리기. 결과: D:\trace\retrain\<시각>\report.md
+trace-ml retrain deploy    # 승인: 학교 서버·Jetson에 같은 묶음, 두 곳 '확인 끝' 해시가 같아야 성공
+# 매일 03:00 예약(한 번만 등록)
+schtasks /Create /SC DAILY /ST 03:00 /TN "TRACE retrain auto" /TR "D:\trace\ml\.venv\Scripts\trace-ml.exe retrain auto"
+```
+
+| 결과 | 뜻 | 알림 |
+| --- | --- | --- |
+| `NOT_READY` | 새 검수가 기준 전 | 기본 없음(`TRACE_RETRAIN_NOTIFY_IDLE=1`이면 보냄) |
+| `GATE_FAILED` | 새 모델이 하나라도 나빠짐, 현재 모델 유지 | 보냄 |
+| `PROMOTED` | 레지스트리 등록·배포 묶음 완료, 승인 대기 | 보냄(`retrain deploy` 안내) |
+| `FAILED` | 단계 실패(리포트에 단계·오류) | 보냄 |
+
+`report.json`에는 단계별 시작 시각·소요 초·검수 수·게이트 표가 남아 발표 숫자의 원본이 됩니다. 실행이 겹치면 두 번째는 `.auto.lock` 때문에 바로 멈춥니다. 배포가 한쪽만 성공하면 자동으로 되돌리지 않고 `retrain rollback` 뒤 `retrain deploy`로 두 곳을 다시 맞추라고 알립니다. Jetson은 배포 뒤 부스 앱(`trace-booth serve`)을 다시 띄워야 새 엔진을 읽습니다.
+
 ### 향후 과제
 
 - 웹 관리자 화면에 "재학습 기준까지 N장" 표시(capture-server 검수 집계 API, 계약 추가 필요)
