@@ -157,7 +157,7 @@ def test_열_수가_다른_CSV는_멈춘다(tmp_path):
 def test_SQL은_검수_완료된_부스_빠른_검사와_결정된_흠집만_읽는다():
     cmd = psql_command(datetime(2026, 11, 8, tzinfo=UTC))
     assert cmd.startswith("docker compose exec -T postgres psql") and "\\copy (" in cmd
-    assert "cs.profile = 'QUICK'" in cmd and "review_completed_at is not null" in cmd
+    assert "cs.source = 'BOOTH'" in cmd and "profile" not in cmd and "review_completed_at is not null" in cmd
     assert "'2026-11-08T00:00:00+00:00'::timestamptz" in cmd and "#>> '{}'" in cmd
     assert "left join rental.device dv" in cmd and "dv.asset_no" in cmd
     assert "null::timestamptz" in psql_command(None)

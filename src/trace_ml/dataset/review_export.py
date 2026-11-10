@@ -5,8 +5,9 @@
   후보가 모두 흠집 아님이었던 사진은 빈 라벨 파일(흠집 없는 사진)로 남는다.
 - AI가 아예 못 잡은 흠집은 이 사진들에 라벨이 없으므로, 내보낸 사진은 학습 train에만 더한다(val로 재지 않음).
 
-capture-server의 부스 빠른 검사(QUICK) 세트만 쓴다. 이 세트의 폴리곤은 원본 사진 px라 사진 크기로 0~1로 바꾸면 된다.
-정합 세트(FULL)는 표준 좌표 px라 사진 좌표로 되돌려야 해서 지금은 내보내지 않는다.
+capture-server의 부스 세트(빠른 검사 QUICK·전체 검사 FULL)를 쓴다. 라벨은 흠집마다 있는 원본 사진 px
+폴리곤(photo_polygon)으로 만들므로 정합 여부와 상관없이 사진 크기로 0~1로 바꾸면 된다(#35).
+폰 세트(PHONE)는 카메라·거리가 부스와 달라 학습 분포가 섞이지 않게 아직 넣지 않는다.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ select p.public_id, cs.public_id, cs.rental_id, p.face, p.light, p.camera, p.obj
   join inspection.defect d on d.photo_id = p.id
   left join rental.rental r on r.public_id = cs.rental_id
   left join rental.device dv on dv.id = r.device_id
- where cs.profile = 'QUICK' and cs.review_completed_at is not null and p.uploaded
+ where cs.source = 'BOOTH' and cs.review_completed_at is not null and p.uploaded
    and d.review_status in ('CONFIRMED', 'DISMISSED')
    and ({since} is null or cs.review_completed_at >= {since})
  order by cs.review_completed_at, p.public_id, d.public_id
