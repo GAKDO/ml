@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -95,6 +96,15 @@ class AutoConfig:
             raise RetrainError(f"설정 항목이 틀림: {exc}") from exc
 
 
+def _rq(path: str) -> str:
+    """원격 셸에 넘길 경로를 인용한다. 앞의 ~/ 는 홈 확장이 되도록 밖에 둔다(공백·메타문자로 명령이 갈라지지 않게)."""
+    if path == "~":
+        return path
+    if path.startswith("~/"):
+        return "~/" + shlex.quote(path[2:])
+    return shlex.quote(path)
+
+
 def _ssh(t: Target, command: str) -> list[str]:
     return ["ssh", "-o", "BatchMode=yes", "-p", str(t.port), t.host, command]
 
@@ -170,12 +180,19 @@ class _Lock:
         self.path = path
 
     def __enter__(self) -> Self:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
             fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError as exc:
             raise RetrainError(f"다른 자동 재학습이 돌고 있음(멈춘 게 확실하면 지우세요): {self.path}") from exc
-        os.write(fd, str(os.getpid()).encode())
+        except OSError as exc:
+            raise RetrainError(f"잠금 파일을 만들지 못함: {exc}") from exc
+        try:
+            os.write(fd, str(os.getpid()).encode())
+        except OSError as exc:
+            os.close(fd)
+            self.path.unlink(missing_ok=True)  # 이번 시도가 만든 잠금만 지운다
+            raise RetrainError(f"잠금 파일을 쓰지 못함: {exc}") from exc
         os.close(fd)
         return self
 
@@ -251,7 +268,7 @@ def _auto(cfg: AutoConfig, reg: ModelRegistry, env: Mapping[str, str], runner: R
                 raise RetrainError("설정 reviewSsh 또는 환경 변수 CAPTURE_DATABASE_URL이 필요함")
             return "CAPTURE_DATABASE_URL에서 직접 읽음"
         sql = psql_command(None).removesuffix(" > reviews.csv")
-        code, out, err = runner(_ssh(cfg.reviewSsh, f"cd {cfg.composeDir} && {sql}"))
+        code, out, err = runner(_ssh(cfg.reviewSsh, f"cd {_rq(cfg.composeDir)} && {sql}"))
         if code != 0:
             raise RetrainError(f"학교 서버에서 검수 CSV를 받지 못함(ssh 키 로그인 확인): {(out + err).strip()[-300:]}")
         rows.write_text(out, encoding="utf-8")
@@ -315,13 +332,15 @@ def _auto(cfg: AutoConfig, reg: ModelRegistry, env: Mapping[str, str], runner: R
     rep.step("게이트", judge)
     if not extra["gate"]["passed"]:
         return "GATE_FAILED"
+    # 등록보다 먼저 새 버전의 가중치 경로를 적는다. 등록 뒤 저장이 실패하면 다음 실행이 옛 가중치로 이어 학습하게 되므로,
+    # 버전 키로 미리 적어 두면 promote가 실패해도 해가 없고(쓰이지 않음) 성공하면 바로 맞는 경로가 된다.
+    _remember_weights(reg, version, new_weights)
     rep.step("등록·배포 묶음", lambda: _check(runner(trace_ml(
         "retrain", "--registry", str(reg.path), "promote", "--model-dir", str(model_dir), "--gate", str(gate_path),
         "--reviews", str(review))), "promote"))
     new = reg.current()
     if new is None or new.modelVersion != version:
         raise RetrainError("promote 뒤 레지스트리 현재 모델이 새 모델이 아님")
-    _remember_weights(reg, version, new_weights)
     extra["release"] = new.release
     return "PROMOTED"
 
@@ -362,9 +381,9 @@ def deploy(cfg: AutoConfig, reg: ModelRegistry, env: Mapping[str, str], *, runne
         t0 = time.monotonic()
         dest = f"{t.dir}/{release.name}"
         try:
-            _check(runner(_ssh(t, f"mkdir -p {t.dir} && rm -rf {dest}")), f"{name} 폴더 준비")
+            _check(runner(_ssh(t, f"mkdir -p {_rq(t.dir)} && rm -rf {_rq(dest)}")), f"{name} 폴더 준비")
             _check(runner(_scp(t, release, f"{t.dir}/")), f"{name} 복사")
-            code, out, err = runner(_ssh(t, f"cd {dest} && bash {t.script}"))
+            code, out, err = runner(_ssh(t, f"cd {_rq(dest)} && bash {shlex.quote(t.script)}"))
             m = _CONFIRMED.search(out)
             ok = code == 0 and m is not None and m.group(1) == cur.modelVersion and m.group(2) == cur.onnxSha256[:12]
             detail = m.group(0) if m else "\n".join((out + err).strip().splitlines()[-3:])

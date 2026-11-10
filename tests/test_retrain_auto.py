@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from trace_ml.__main__ import main
+from trace_ml.retrain import auto as auto_mod
 from trace_ml.retrain.auto import AutoConfig, Target, auto, deploy
 from trace_ml.retrain.pipeline import ModelRegistry, RetrainError, promote
 
@@ -189,3 +190,17 @@ def test_잠금이_남아_있으면_시작하지_않고_알린다(tmp_path, setu
         auto(cfg, reg, {"TRACE_ALERT_WEBHOOK_URL": "https://hooks.example/x"}, runner=FakeHosts(tmp_path),
              now=lambda: NOW, post=lambda url, body: sent.append(json.dumps(body)) or 204)
     assert sent and lock.exists()
+
+
+def test_잠금_파일을_만들_수_없으면_RetrainError로_알릴_수_있게_바꾼다(tmp_path: Path) -> None:
+    blocker = tmp_path / "file"
+    blocker.write_text("x", encoding="utf-8")
+    lock = auto_mod._Lock(blocker / "sub" / ".auto.lock")  # 부모가 파일이라 mkdir 실패
+    with pytest.raises(RetrainError, match="잠금 파일을 만들지 못함"):
+        lock.__enter__()
+
+
+def test_원격_경로는_인용하되_홈_확장은_남긴다() -> None:
+    assert auto_mod._rq("~/trace releases") == "~/'trace releases'"
+    assert auto_mod._rq("/srv/a;rm -rf x") == "'/srv/a;rm -rf x'"
+    assert auto_mod._rq("~/trace-releases") == "~/trace-releases"
