@@ -31,14 +31,19 @@ MANUAL_COMMANDS = 14
 _REGISTERED = re.compile(r"부스·서버로 옮길 파일: (.+?) \(best\.onnx")
 _CONFIRMED = re.compile(r"확인 끝: (\S+) \(([0-9a-f]{12})\)")
 
-# (argv, 표준 입력 없음) → (종료 코드, 표준 출력+오류). 테스트에서 바꿔 끼운다.
-Runner = Callable[[list[str]], tuple[int, str]]
+# (argv, 표준 입력 없음) → (종료 코드, 표준 출력, 표준 오류). 테스트에서 바꿔 끼운다.
+# 출력과 오류를 나눠야 원격 docker·ssh 경고가 검수 CSV에 섞이지 않는다.
+Runner = Callable[[list[str]], tuple[int, str, str]]
 
 
-def _run(argv: list[str]) -> tuple[int, str]:  # pragma: no cover - 실제 프로세스
+def _run(argv: list[str]) -> tuple[int, str, str]:  # pragma: no cover - 실제 프로세스
+    env = None
+    if argv[:3] == [sys.executable, "-m", "trace_ml"]:
+        # Windows(cp949)에서도 하위 trace-ml이 UTF-8로 찍어야 '부스·서버로 옮길 파일' 줄을 읽는다
+        env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     proc = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                          check=False)
-    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+                          check=False, env=env)
+    return proc.returncode, proc.stdout or "", proc.stderr or ""
 
 
 def _now() -> datetime:
@@ -124,8 +129,8 @@ class Report:
             s.detail = fn()
             s.ok = True
             return s.detail
-        except RetrainError as exc:
-            s.detail = str(exc)
+        except Exception as exc:  # 어떤 실패든 그 단계에 이유를 남긴다
+            s.detail = str(exc) if isinstance(exc, RetrainError) else f"{type(exc).__name__}: {exc}"
             raise
         finally:
             s.seconds = round(time.monotonic() - t0, 1)
@@ -192,9 +197,9 @@ def _remember_weights(reg: ModelRegistry, version: str, weights: Path) -> None:
     _state_path(reg).write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _check(code_out: tuple[int, str], what: str) -> str:
-    code, out = code_out
-    tail = "\n".join(out.strip().splitlines()[-5:])
+def _check(res: tuple[int, str, str], what: str) -> str:
+    code, out, err = res
+    tail = "\n".join((out + err).strip().splitlines()[-5:])
     if code != 0:
         raise RetrainError(f"{what} 실패(종료 코드 {code}): {tail}")
     return tail
@@ -203,17 +208,28 @@ def _check(code_out: tuple[int, str], what: str) -> str:
 def auto(cfg: AutoConfig, reg: ModelRegistry, env: Mapping[str, str], *, runner: Runner = _run,
          now: Callable[[], datetime] = _now, post: Post | None = None) -> tuple[str, Path]:
     """한 번 돈다. (상태, report.json 경로). 상태: NOT_READY | GATE_FAILED | PROMOTED | FAILED."""
-    work = Path(cfg.workRoot) / now().strftime("%Y%m%dT%H%M%SZ")
-    work.mkdir(parents=True)
-    rep = Report(work, now)
-    extra: dict[str, Any] = {}
-    status = "FAILED"
-    with _Lock(Path(cfg.workRoot) / ".auto.lock"):
+    kw = {"post": post} if post else {}
+    try:
+        lock = _Lock(Path(cfg.workRoot) / ".auto.lock").__enter__()
+    except RetrainError as exc:
+        # 남은 잠금 파일 때문에 예약 실행이 매일 조용히 멈추지 않게 알린다
+        print(notify(env, f"[TRACE 모델] 자동 재학습 시작 못 함: {exc}", **kw))
+        raise
+    try:
+        work = Path(cfg.workRoot) / now().strftime("%Y%m%dT%H%M%SZ")
+        work.mkdir(parents=True, exist_ok=True)
+        rep = Report(work, now)
+        extra: dict[str, Any] = {}
+        status = "FAILED"
         try:
             status = _auto(cfg, reg, env, runner, rep, work, extra)
         except RetrainError as exc:
             extra["error"] = str(exc)
+        except Exception as exc:  # noqa: BLE001 - CSV 형식·평가 JSON·실행 오류도 리포트와 알림을 남긴다
+            extra["error"] = f"{type(exc).__name__}: {exc}"
         path = rep.write(status, **extra)
+    finally:
+        lock.__exit__(None, None, None)
     _notify(env, status, rep, post)
     return status, path
 
@@ -235,9 +251,9 @@ def _auto(cfg: AutoConfig, reg: ModelRegistry, env: Mapping[str, str], runner: R
                 raise RetrainError("설정 reviewSsh 또는 환경 변수 CAPTURE_DATABASE_URL이 필요함")
             return "CAPTURE_DATABASE_URL에서 직접 읽음"
         sql = psql_command(None).removesuffix(" > reviews.csv")
-        code, out = runner(_ssh(cfg.reviewSsh, f"cd {cfg.composeDir} && {sql}"))
+        code, out, err = runner(_ssh(cfg.reviewSsh, f"cd {cfg.composeDir} && {sql}"))
         if code != 0:
-            raise RetrainError(f"학교 서버에서 검수 CSV를 받지 못함(ssh 키 로그인 확인): {out.strip()[-300:]}")
+            raise RetrainError(f"학교 서버에서 검수 CSV를 받지 못함(ssh 키 로그인 확인): {(out + err).strip()[-300:]}")
         rows.write_text(out, encoding="utf-8")
         return f"{len(out.splitlines()) - 1}행"
 
@@ -267,9 +283,9 @@ def _auto(cfg: AutoConfig, reg: ModelRegistry, env: Mapping[str, str], runner: R
     registered: list[Path] = []
 
     def train() -> str:
-        code, out = runner(trace_ml("train", cfg.dataset, "--base", str(base), "--model-name", cfg.modelName,
+        code, out, err = runner(trace_ml("train", cfg.dataset, "--base", str(base), "--model-name", cfg.modelName,
                                     "--extra-train", str(review), *cfg.trainArgs))
-        _check((code, out), "train")
+        _check((code, out, err), "train")
         m = _REGISTERED.search(out)
         if not m:
             raise RetrainError("train 출력에서 registered 폴더를 찾지 못함")
@@ -348,10 +364,10 @@ def deploy(cfg: AutoConfig, reg: ModelRegistry, env: Mapping[str, str], *, runne
         try:
             _check(runner(_ssh(t, f"mkdir -p {t.dir} && rm -rf {dest}")), f"{name} 폴더 준비")
             _check(runner(_scp(t, release, f"{t.dir}/")), f"{name} 복사")
-            code, out = runner(_ssh(t, f"cd {dest} && bash {t.script}"))
+            code, out, err = runner(_ssh(t, f"cd {dest} && bash {t.script}"))
             m = _CONFIRMED.search(out)
             ok = code == 0 and m is not None and m.group(1) == cur.modelVersion and m.group(2) == cur.onnxSha256[:12]
-            detail = m.group(0) if m else "\n".join(out.strip().splitlines()[-3:])
+            detail = m.group(0) if m else "\n".join((out + err).strip().splitlines()[-3:])
         except RetrainError as exc:
             ok, detail = False, str(exc)
         results["targets"][name] = {"ok": ok, "detail": detail, "seconds": round(time.monotonic() - t0, 1)}

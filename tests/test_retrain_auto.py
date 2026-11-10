@@ -51,32 +51,32 @@ class FakeHosts:
         self.tmp, self.rows, self.better = tmp, rows, better
         self.calls: list[list[str]] = []
 
-    def __call__(self, argv: list[str]) -> tuple[int, str]:
+    def __call__(self, argv: list[str]) -> tuple[int, str, str]:
         self.calls.append(argv)
         if argv[0] == "ssh":
-            return 0, _csv_text(self.rows)
+            return 0, _csv_text(self.rows), "WARN[0000] 원격 경고는 stderr로 나와 CSV에 섞이면 안 된다\n"
         args = argv[3:]  # python -m trace_ml
         if args[:2] == ["review", "export"]:
             out = Path(args[args.index("--out") + 1])
             out.mkdir(parents=True)
             (out / "reviews.jsonl").write_text(json.dumps({"reviewedAt": "2026-11-11T10:00:00+00:00"}) + "\n")
             (out / "summary.json").write_text("{}")
-            return 0, "사진 130장"
+            return 0, "사진 130장", ""
         if args[0] == "train":
             run = self.tmp / "runs" / "20261111T180000Z"
             _model(run / "registered", "v005")
             (run / "weights").mkdir()
             (run / "weights" / "best.pt").write_bytes(b"pt5")
-            return 0, f"부스·서버로 옮길 파일: {run / 'registered'} (best.onnx·model.json, retrain promote --model-dir)\n"
+            return 0, f"부스·서버로 옮길 파일: {run / 'registered'} (best.onnx·model.json, retrain promote --model-dir)\n", ""
         if args[0] == "evaluate":
             v = args[args.index("--model-version") + 1]
             new = v == "v005"
             _eval(Path(args[args.index("--out") + 1]), v, 0.95 if new and self.better else 0.9,
                   0 if new and self.better else (3 if new else 1))
-            return 0, "평가"
+            return 0, "평가", ""
         if args[0] == "retrain":
             code = main(args, env={})
-            return code, ""
+            return code, "", ""
         raise AssertionError(argv)
 
 
@@ -123,8 +123,8 @@ def test_새_모델이_나빠지면_게이트에서_멈추고_현재_모델을_�
 def test_실패해도_리포트를_남기고_잠금을_푼다(tmp_path, setup):
     cfg, reg = setup
 
-    def broken(argv: list[str]) -> tuple[int, str]:
-        return 255, "Permission denied (publickey)"
+    def broken(argv: list[str]) -> tuple[int, str, str]:
+        return 255, "", "Permission denied (publickey)"
 
     status, report = auto(cfg, reg, {}, runner=broken, now=lambda: NOW)
     assert status == "FAILED" and "ssh 키" in json.loads(report.read_text())["error"]
@@ -138,11 +138,11 @@ def test_승인하면_서버와_Jetson에_같은_묶음을_올리고_두_해시�
     cfg = AutoConfig(**{**cfg.__dict__, "server": Target("trace@school", 8822),
                         "jetson": Target("minseo@jetson2", 22, script="deploy-jetson.sh")})
 
-    def hosts(argv: list[str]) -> tuple[int, str]:
+    def hosts(argv: list[str]) -> tuple[int, str, str]:
         if argv[0] == "ssh" and "bash deploy-" in argv[-1]:
             sha = cur.onnxSha256[:12] if "server" in argv[-1] else "000000000000"
-            return 0, f"확인 끝: {cur.modelVersion} ({sha})\n"
-        return 0, ""
+            return 0, f"확인 끝: {cur.modelVersion} ({sha})\n", ""
+        return 0, "", ""
 
     res = deploy(cfg, reg, {}, runner=hosts)
     assert res["targets"]["학교 서버"]["ok"] and not res["targets"]["부스 Jetson"]["ok"]
@@ -154,7 +154,7 @@ def test_배포_대상이_한_곳뿐이면_모델_일치_원칙으로_거부한�
     auto(cfg, reg, {}, runner=FakeHosts(tmp_path), now=lambda: NOW)
     cfg = AutoConfig(**{**cfg.__dict__, "server": Target("trace@school", 8822)})
     with pytest.raises(RetrainError, match="모델 일치"):
-        deploy(cfg, reg, {}, runner=lambda a: (0, ""))
+        deploy(cfg, reg, {}, runner=lambda a: (0, "", ""))
 
 
 def test_설정_파일의_대상은_기본_스크립트가_정해진다(tmp_path):
@@ -163,3 +163,29 @@ def test_설정_파일의_대상은_기본_스크립트가_정해진다(tmp_path
                              "server": {"host": "a@b", "port": 8822}, "jetson": {"host": "c@d"}}))
     cfg = AutoConfig.load(p)
     assert (cfg.server.script, cfg.jetson.script, cfg.jetson.port) == ("deploy-server.sh", "deploy-jetson.sh", 22)
+
+
+def test_RetrainError가_아닌_실패도_리포트와_알림을_남긴다(tmp_path, setup):
+    cfg, reg = setup
+    sent: list[str] = []
+
+    def bad_csv(argv: list[str]) -> tuple[int, str, str]:
+        return 0, "header\nonly,three,cols\n", ""
+
+    status, report = auto(cfg, reg, {"TRACE_ALERT_WEBHOOK_URL": "https://hooks.example/x"}, runner=bad_csv,
+                          now=lambda: NOW, post=lambda url, body: sent.append(json.dumps(body)) or 204)
+    doc = json.loads(report.read_text(encoding="utf-8"))
+    assert status == "FAILED" and doc["error"] and doc["steps"][-1]["ok"] is False
+    assert sent and not (Path(cfg.workRoot) / ".auto.lock").exists()
+
+
+def test_잠금이_남아_있으면_시작하지_않고_알린다(tmp_path, setup):
+    cfg, reg = setup
+    lock = Path(cfg.workRoot) / ".auto.lock"
+    lock.parent.mkdir(parents=True)
+    lock.write_text("123")
+    sent: list[str] = []
+    with pytest.raises(RetrainError, match="다른 자동 재학습"):
+        auto(cfg, reg, {"TRACE_ALERT_WEBHOOK_URL": "https://hooks.example/x"}, runner=FakeHosts(tmp_path),
+             now=lambda: NOW, post=lambda url, body: sent.append(json.dumps(body)) or 204)
+    assert sent and lock.exists()

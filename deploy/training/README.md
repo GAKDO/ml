@@ -349,8 +349,20 @@ trace-ml retrain promote --model-dir <새 run>\registered --gate gate.json --rev
 # 집 PC PowerShell (venv 켠 창)
 trace-ml retrain auto      # 한 번 돌리기. 결과: D:\trace\retrain\<시각>\report.md
 trace-ml retrain deploy    # 승인: 학교 서버·Jetson에 같은 묶음, 두 곳 '확인 끝' 해시가 같아야 성공
-# 매일 03:00 예약(한 번만 등록)
-schtasks /Create /SC DAILY /ST 03:00 /TN "TRACE retrain auto" /TR "D:\trace\ml\.venv\Scripts\trace-ml.exe retrain auto"
+```
+
+예약 작업은 PowerShell 창의 환경 변수를 물려받지 않으므로, `.env`를 불러오고 레지스트리 경로를 직접 주는 작은 스크립트로 돌립니다. `D:\trace\retrain-auto.ps1`에 아래를 저장합니다(레포 밖이라 커밋되지 않음).
+
+```powershell
+# D:\trace\retrain-auto.ps1 : .env(웹훅·DB 주소)를 불러온 뒤 자동 재학습 한 번
+Get-Content D:\trace\ml\.env | Where-Object { $_ -match '^[A-Z_]+=.' } | ForEach-Object { $n, $v = $_ -split '=', 2; Set-Item "env:$n" $v.Trim() }
+& D:\trace\ml\.venv\Scripts\trace-ml.exe retrain --registry D:\trace\models\registry.json auto
+```
+
+```powershell
+# 집 PC PowerShell: 매일 03:00 예약(한 번만 등록)
+schtasks /Create /SC DAILY /ST 03:00 /TN "TRACE retrain auto" /TR "powershell -NoProfile -ExecutionPolicy Bypass -File D:\trace\retrain-auto.ps1"
+schtasks /Run /TN "TRACE retrain auto"   # 등록 직후 한 번 돌려 D:\trace\retrain\<시각>\report.md 확인
 ```
 
 | 결과 | 뜻 | 알림 |
@@ -360,7 +372,7 @@ schtasks /Create /SC DAILY /ST 03:00 /TN "TRACE retrain auto" /TR "D:\trace\ml\.
 | `PROMOTED` | 레지스트리 등록·배포 묶음 완료, 승인 대기 | 보냄(`retrain deploy` 안내) |
 | `FAILED` | 단계 실패(리포트에 단계·오류) | 보냄 |
 
-`report.json`에는 단계별 시작 시각·소요 초·검수 수·게이트 표가 남아 발표 숫자의 원본이 됩니다. 실행이 겹치면 두 번째는 `.auto.lock` 때문에 바로 멈춥니다. 배포가 한쪽만 성공하면 자동으로 되돌리지 않고 `retrain rollback` 뒤 `retrain deploy`로 두 곳을 다시 맞추라고 알립니다. Jetson은 배포 뒤 부스 앱(`trace-booth serve`)을 다시 띄워야 새 엔진을 읽습니다.
+`report.json`에는 단계별 시작 시각·소요 초·검수 수·게이트 표가 남아 발표 숫자의 원본이 됩니다. 실행이 겹치면 두 번째는 `.auto.lock` 때문에 바로 멈추고 알림을 보냅니다(강제 종료로 잠금이 남았다면 그 파일을 지우세요). 단계 중 어떤 오류가 나도 `report.json`과 `FAILED` 알림은 남습니다. 배포가 한쪽만 성공하면 자동으로 되돌리지 않고 `retrain rollback` 뒤 `retrain deploy`로 두 곳을 다시 맞추라고 알립니다. Jetson은 배포 뒤 부스 앱(`trace-booth serve`)을 다시 띄워야 새 엔진을 읽습니다.
 
 ### 향후 과제
 
