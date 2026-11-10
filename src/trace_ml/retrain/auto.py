@@ -102,6 +102,9 @@ def _rq(path: str) -> str:
         return path
     if path.startswith("~/"):
         return "~/" + shlex.quote(path[2:])
+    if path.startswith("~"):
+        # ~user/ 는 ssh(셸)와 scp(SFTP)가 다르게 풀 수 있어 받지 않는다
+        raise RetrainError(f"원격 경로는 절대 경로나 ~/ 로 시작해야 함: {path}")
     return shlex.quote(path)
 
 
@@ -211,7 +214,15 @@ def _weights_by_version(reg: ModelRegistry) -> dict[str, str]:
 
 def _remember_weights(reg: ModelRegistry, version: str, weights: Path) -> None:
     doc = {"weights": {**_weights_by_version(reg), version: str(weights)}}
-    _state_path(reg).write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+    # 쓰다 끊겨도 기존 상태 파일이 깨지지 않게 임시 파일에 쓴 뒤 바꿔 끼운다
+    p = _state_path(reg)
+    tmp = p.with_name(p.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(p)
+    except OSError as exc:
+        tmp.unlink(missing_ok=True)
+        raise RetrainError(f"상태 파일을 쓰지 못함: {exc}") from exc
 
 
 def _check(res: tuple[int, str, str], what: str) -> str:
@@ -334,6 +345,8 @@ def _auto(cfg: AutoConfig, reg: ModelRegistry, env: Mapping[str, str], runner: R
         return "GATE_FAILED"
     # 등록보다 먼저 새 버전의 가중치 경로를 적는다. 등록 뒤 저장이 실패하면 다음 실행이 옛 가중치로 이어 학습하게 되므로,
     # 버전 키로 미리 적어 두면 promote가 실패해도 해가 없고(쓰이지 않음) 성공하면 바로 맞는 경로가 된다.
+    if any(e.modelVersion == version for e in reg.history()):
+        raise RetrainError(f"이미 등록된 버전이라 덮어쓰지 않음: {version}")
     _remember_weights(reg, version, new_weights)
     rep.step("등록·배포 묶음", lambda: _check(runner(trace_ml(
         "retrain", "--registry", str(reg.path), "promote", "--model-dir", str(model_dir), "--gate", str(gate_path),

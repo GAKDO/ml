@@ -204,3 +204,15 @@ def test_원격_경로는_인용하되_홈_확장은_남긴다() -> None:
     assert auto_mod._rq("~/trace releases") == "~/'trace releases'"
     assert auto_mod._rq("/srv/a;rm -rf x") == "'/srv/a;rm -rf x'"
     assert auto_mod._rq("~/trace-releases") == "~/trace-releases"
+    with pytest.raises(RetrainError, match="절대 경로나 ~/"):
+        auto_mod._rq("~other/trace-releases")
+
+
+def test_상태_파일은_임시_파일을_거쳐_바꿔_끼운다(tmp_path: Path) -> None:
+    from trace_ml.retrain.pipeline import ModelRegistry
+
+    reg = ModelRegistry(tmp_path / "registry.json")
+    auto_mod._remember_weights(reg, "v1", tmp_path / "a.pt")
+    auto_mod._remember_weights(reg, "v2", tmp_path / "b.pt")
+    assert auto_mod._weights_by_version(reg) == {"v1": str(tmp_path / "a.pt"), "v2": str(tmp_path / "b.pt")}
+    assert not (tmp_path / "auto-state.json.tmp").exists()
