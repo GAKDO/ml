@@ -14,3 +14,9 @@ runs/
 *.pt
 *.onnx
 *.engine
+
+# inspect-worker 집 PC 비밀 값
+deploy/inspect-worker/worker.env
+
+# CI가 받는 계약 레포(python-ci.yml)
+.contracts/

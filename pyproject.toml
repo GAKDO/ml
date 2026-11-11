@@ -7,16 +7,27 @@ name = "ml"
 version = "0.1.0"
 description = "TRACE ml: 집 PC 작업: inspect-worker·recon-worker(실험)·데이터셋 빌더·YOLO11-seg 학습"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "requests>=2.31", "boto3>=1.35", "psycopg[binary]>=3.2", "PyYAML>=6",
+  # inspect-worker(ML2): 정합·브로커·진행률. GPU 없이 돈다
+  "numpy>=1.26", "opencv-python-headless>=4.11", "pika>=1.3", "redis>=5",
+]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "jsonschema>=4.23"]
+# 집 PC 학습에만 필요 (torch 포함, 큼)
+train = ["ultralytics>=8.3", "onnxruntime>=1.18"]
+# 학교 서버 inspect-worker 컨테이너: best.onnx를 CPU로 돌린다(torch 없음, 이미지 작게)
+worker = ["onnxruntime>=1.18"]
 
 [project.scripts]
 trace-ml = "trace_ml.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+trace_ml = ["sql/*.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

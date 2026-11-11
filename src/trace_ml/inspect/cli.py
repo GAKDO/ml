@@ -1,0 +1,202 @@
+"""inspect-worker·정합 명령.
+
+    trace-ml inspect worker [--idle 초]   큐 trace.inspect.requested 처리(집 PC, 자동 시작)
+    trace-ml align photo <사진> --face TOP [--out 펼친.png]
+    trace-ml align eval [--n 100] [--faces TOP,SF,SL] [--json 결과.json]
+    trace-ml align pair <부스 사진> <폰 사진> --face TOP
+    trace-ml align set <세트 ID> [--faces SF,SL] [--out 폴더]   세트 사진마다 정합 결과·실패 사유(판정 불가 면 조사)
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import pathlib
+import re
+import sys
+from collections.abc import Mapping
+from typing import Any
+
+from ..labelstudio.config import ConfigError
+from ..settings import MinioSettings, _get
+from ..store import Store, make_store
+from .faces import DEVICE_MODELS, FACES, face_size_px, load_dims
+from .yolo_detect import load_detector
+
+
+def add_parsers(sub: Any) -> None:
+    ins = sub.add_parser("inspect", help="inspect-worker(ML2)")
+    ins_sub = ins.add_subparsers(dest="command", required=True)
+    w = ins_sub.add_parser("worker", help="trace.inspect.requested를 처리")
+    w.add_argument("--idle", type=float, default=None, help="이 초 동안 메시지가 없으면 끝냄(기본: 계속)")
+
+    al = sub.add_parser("align", help="윤곽 4점 정합 확인·오차 재기")
+    al_sub = al.add_subparsers(dest="command", required=True)
+    p = al_sub.add_parser("photo", help="사진 한 장을 펼친다")
+    p.add_argument("image")
+    p.add_argument("--face", required=True, choices=FACES)
+    p.add_argument("--out", default="rectified.png")
+    e = al_sub.add_parser("eval", help="합성 사진으로 꼭짓점 오차(px·mm)")
+    e.add_argument("--n", type=int, default=100)
+    e.add_argument("--faces", default="TOP,SF,SL")
+    e.add_argument("--seed", type=int, default=0)
+    e.add_argument("--json", default=None)
+    st = al_sub.add_parser("set", help="촬영 세트 사진 전부를 정합해 보고 사진마다 결과·실패 사유를 적는다(판정 불가 면 조사, 11/9)")
+    st.add_argument("capture_set_id", help="세트 ID(21자). trace-captures/captures/<ID>/ 아래 사진을 읽는다")
+    st.add_argument("--faces", default=None, help="이 면만(쉼표로, 예: SF,SB,SL,SR,SCR0)")
+    st.add_argument("--out", default=None, help="폴더를 주면 사진마다 이진화 마스크(*-mask.png)·펼친 이미지(*-rect.png)를 남긴다")
+    pr = al_sub.add_parser("pair", help="같은 면의 두 사진(부스·폰) 사이 정합 오차")
+    pr.add_argument("image_a")
+    pr.add_argument("image_b")
+    pr.add_argument("--face", required=True, choices=FACES)
+    pr.add_argument("--json", default=None)
+
+
+def load_worker_minio(env: Mapping[str, str]) -> MinioSettings:
+    """worker 역할 키(trace-worker)가 없으면 팀 키를 쓴다. 값은 보여 주지 않는다."""
+    values = {
+        "MINIO_ENDPOINT": _get(env, "MINIO_ENDPOINT"),
+        "WORKER_MINIO_ACCESS_KEY": _get(env, "WORKER_MINIO_ACCESS_KEY", "MINIO_ACCESS_KEY"),
+        "WORKER_MINIO_SECRET_KEY": _get(env, "WORKER_MINIO_SECRET_KEY", "MINIO_SECRET_KEY"),
+    }
+    missing = [name for name, value in values.items() if not value]
+    if missing:
+        raise ConfigError("환경 변수가 없음: " + ", ".join(missing))
+    return MinioSettings(endpoint=values["MINIO_ENDPOINT"], access_key=values["WORKER_MINIO_ACCESS_KEY"],
+                         secret_key=values["WORKER_MINIO_SECRET_KEY"])
+
+
+_PHOTO_NAME = re.compile(r"^(TOP|BOT|SF|SB|SL|SR|KB|SCR0|SCR1)-([A-Z0-9]+)-([A-Z0-9]+)\.(jpg|jpeg|png)$")
+
+
+def align_set(store: Store, capture_set_id: str, dims: Any, faces: set[str] | None = None,
+              out_dir: str | None = None, bucket: str = "trace-captures") -> list[dict[str, Any]]:
+    """세트 사진(captures/<세트>/<면>-<조명>-<카메라>.<확장자>)을 worker와 같은 윤곽 정합으로 돌려 본다. 저장소에는 쓰지 않는다."""
+    import cv2
+    import numpy as np
+
+    from .align import AlignFailure, align_photo
+    from .contour import _mask
+
+    if not re.fullmatch(r"[A-Za-z0-9_-]{21}", capture_set_id):
+        raise ConfigError("세트 ID는 21자입니다")
+    rows: list[dict[str, Any]] = []
+    for key in sorted(store.keys(bucket, f"captures/{capture_set_id}/")):
+        name = key.rsplit("/", 1)[-1]
+        m = _PHOTO_NAME.match(name)
+        if not m or (faces and m.group(1) not in faces):
+            continue
+        face, light, camera = m.group(1), m.group(2), m.group(3)
+        image = cv2.imdecode(np.frombuffer(store.get(bucket, key), np.uint8), cv2.IMREAD_COLOR)
+        row: dict[str, Any] = {"photo": name, "face": face, "light": light, "camera": camera}
+        if image is None:
+            rows.append({**row, "ok": False, "reason": "사진을 읽지 못함(디코딩 실패)"})
+            continue
+        result = align_photo(image, face_size_px(face, dims))
+        stem = name.replace(".", "_")  # 확장자까지 넣어 a.jpg·a.png가 같은 파일을 덮지 않게
+        saved: list[str] = []
+        if out_dir:
+            pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
+            mask_path = pathlib.Path(out_dir) / f"{stem}-mask.png"
+            if not cv2.imwrite(str(mask_path), _mask(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY))):
+                saved.append(f"저장 실패: {mask_path}")
+        if isinstance(result, AlignFailure):
+            rows.append({**row, "method": "CONTOUR", "ok": False, "reason": result.reason,
+                         **({"saveError": "; ".join(saved)} if saved else {})})
+            continue
+        if out_dir:
+            rect_path = pathlib.Path(out_dir) / f"{stem}-rect.png"
+            if not cv2.imwrite(str(rect_path), result.rectified):
+                saved.append(f"저장 실패: {rect_path}")
+        rows.append({**row, "method": "CONTOUR", "ok": True, "partial": result.partial,
+                     "errorPx": None if result.error_px is None else round(result.error_px, 3),
+                     **({"saveError": "; ".join(saved)} if saved else {})})
+    return rows
+
+
+def _read(path: str) -> Any:
+    import cv2
+
+    image = cv2.imread(path, cv2.IMREAD_COLOR)
+    if image is None:
+        raise ConfigError(f"사진을 읽지 못함: {path}")
+    return image
+
+
+def _dump(result: dict[str, Any], path: str | None) -> None:
+    text = json.dumps(result, ensure_ascii=False, indent=2)
+    print(text)
+    if path:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text + "\n")
+
+
+def run(args: argparse.Namespace, env: Mapping[str, str], store: Store | None = None) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    try:
+        dims = load_dims(env)
+        if args.tool == "inspect":
+            from .runner import serve
+
+            store = store or make_store(load_worker_minio(env))
+            handled = serve(env, store, detector=load_detector(env), idle_timeout=args.idle)
+            print(f"처리한 메시지 {handled}개")
+            return 0
+        if args.command == "photo":
+            import cv2
+
+            from .align import AlignFailure, align_photo
+
+            result = align_photo(_read(args.image), face_size_px(args.face, dims))
+            if isinstance(result, AlignFailure):
+                print(f"실패: {result.reason}", file=sys.stderr)
+                return 1
+            if not cv2.imwrite(args.out, result.rectified):
+                print(f"실패: 펼친 이미지를 쓰지 못함: {args.out}", file=sys.stderr)
+                return 1
+            print(json.dumps({"out": args.out, "errorPx": result.error_px,
+                              "corners": result.corners.round(2).tolist()}, ensure_ascii=False))
+            return 0
+        if args.command == "set":
+            store = store or make_store(load_worker_minio(env))
+            faces = None if not args.faces else {f.strip() for f in args.faces.split(",") if f.strip()}
+            bad = sorted(f for f in (faces or set()) if f not in FACES)
+            if bad:
+                raise ConfigError(f"모르는 면: {', '.join(bad)}")
+            rows = align_set(store, args.capture_set_id, dims, faces=faces, out_dir=args.out)
+            for row in rows:
+                print(json.dumps(row, ensure_ascii=False))
+            failed = sum(1 for r in rows if not r["ok"])
+            print(f"사진 {len(rows)}장, 정합 실패 {failed}장", file=sys.stderr)
+            return 0 if rows else 1
+        if args.command == "eval":
+            from .measure import synthetic
+
+            faces = [f.strip() for f in args.faces.split(",") if f.strip()]
+            bad = [f for f in faces if f not in FACES]
+            if bad:
+                raise ConfigError(f"모르는 면: {', '.join(bad)}")
+            from .measure import synthetic_booth_half
+
+            out = {"method": "CONTOUR", "deviceModel": dims.code, "n": args.n, "seed": args.seed,
+                   "phone": {f: synthetic(f, dims, args.n, seed=args.seed).as_dict() for f in faces},
+                   "boothHalf": {f"TOP-{half}": synthetic_booth_half("TOP", dims, args.n, half, seed=args.seed).as_dict()
+                                 for half in ("front", "back")}}
+            _dump(out, args.json)
+            return 0
+        from .measure import pair
+
+        res = pair(_read(args.image_a), _read(args.image_b), args.face, dims)
+        if isinstance(res, str):
+            print(f"실패: {res}", file=sys.stderr)
+            return 1
+        _dump({"face": args.face, "deviceModel": dims.code, "matches": res.matches,
+               "errorPxA": res.errors[0], "errorPxB": res.errors[1], "displacement": res.stats.as_dict()}, args.json)
+        return 0
+    except ConfigError as exc:
+        print(f"설정 오류: {exc}", file=sys.stderr)
+        return 2
+
+
+__all__ = ["DEVICE_MODELS", "add_parsers", "align_set", "load_worker_minio", "run"]
