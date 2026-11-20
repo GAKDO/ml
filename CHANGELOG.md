@@ -6,6 +6,9 @@ main에 버전이 적힌 CHANGELOG가 올라가면 release.yml이 태그와 GitH
 
 ## [Unreleased]
 
+### 바꿈
+- CI(python-ci)에서 pytest 커버리지를 재고 70% 아래면 실패하게 했다.
+
 ### 추가
 - 재학습 파이프라인 `trace-ml retrain status|gate|promote|rollback|current`: 검수 누적 기준 확인, 같은 val로 잰 두 평가를 비교해 나을 때만 통과, 모델 레지스트리(현재 모델·교체 이력), 학교 서버·부스 Jetson에 같은 해시로 교체하는 배포 묶음(`deploy-server.sh`·`deploy-jetson.sh`). `--notify`면 Discord·Slack 웹훅(`TRACE_ALERT_WEBHOOK_URL`)으로 기준 도달·새 모델 등록을 알린다. `trace-ml train`도 실행 폴더에 `registered/`(best.onnx·model.json)를 남긴다
 - 정합 보정(FR-INS-02): `TRACE_ALIGN=features`면 윤곽 4점 결과를 대여의 기준 이미지(`trace-derived/align-ref/`)에 특징점(모델 폴더에 `superpoint.onnx`·`lightglue.onnx`가 있으면 SuperPoint+LightGlue ONNX, 없으면 ORB) + ECC로 다듬는다. 기본 `contour`는 그대로
