@@ -1,3 +1,7 @@
+# 이 파일이 확인하는 것: 흠집 검사 워커(inspect-worker, ML2)가 메시지 큐(RabbitMQ)와 주고받는 방식.
+# 흐름: 부스·폰이 사진을 올렸다는 메시지를 받음 → 정합·흠집 찾기 → 결과 메시지 발행 → 받은 메시지 처리 완료(ack).
+# 형식이 틀리거나 계속 실패하는 메시지는 DLQ(처리 못 한 메시지 보관함)로 보내고, 진행률은 Redis로 알린다.
+
 """ML2 브로커: 처리 → 발행 → ack, 형식 오류·계속 실패는 DLQ, 쌓인 작업 처리(스토리 2)."""
 
 from __future__ import annotations
@@ -28,6 +32,7 @@ from trace_ml.labelstudio.config import ConfigError
 from trace_ml.store import Store
 
 
+# 테스트 도구: 가짜 메시지 큐 채널. 완료(ack)·거절(reject)·발행(publish) 호출을 순서대로 기록한다.
 class FakeChannel:
     def __init__(self) -> None:
         self.calls: list[tuple[str, Any]] = []
@@ -50,6 +55,9 @@ def _event_body() -> bytes:
 OK_RESULT = {"eventId": pid("out"), "alignments": [], "failedPhotos": [], "defects": []}
 
 
+# [상황] 올바른 촬영 업로드 메시지를 처리한다.
+# [기대] 결과 메시지를 먼저 발행하고 그다음 완료(ack)한다(결과 없이 메시지가 사라지는 일 방지).
+#        결과는 지워지지 않는 메시지로, 이벤트 ID를 메시지 ID로 보낸다.
 def test_처리가_끝나면_결과를_보낸_뒤에_ack한다() -> None:
     ch = FakeChannel()
     result = Consumer(ch, lambda req: OK_RESULT).on_message(SimpleNamespace(delivery_tag=7), _event_body())
@@ -60,6 +68,8 @@ def test_처리가_끝나면_결과를_보낸_뒤에_ack한다() -> None:
     assert props.message_id == pid("out") and props.delivery_mode == 2 and props.content_type == "application/json"
 
 
+# [상황] JSON이 아닌 메시지와, 필수 내용이 빠진 메시지가 온다.
+# [기대] 처리하지 않고 다시 넣지도 않고 DLQ로 보낸다.
 def test_형식이_틀린_메시지는_다시_하지_않고_DLQ로_보낸다() -> None:
     ch = FakeChannel()
     calls = []
@@ -69,6 +79,8 @@ def test_형식이_틀린_메시지는_다시_하지_않고_DLQ로_보낸다() -
     assert ch.calls == [("reject", (1, False)), ("reject", (2, False))] and calls == []
 
 
+# [상황] 처리 중 저장소 연결이 계속 끊긴다.
+# [기대] 1초·2초 간격으로 세 번 시도한 뒤 DLQ로 보낸다.
 def test_처리_오류는_세_번_해_보고_DLQ로_보낸다() -> None:
     ch = FakeChannel()
     tries = []
@@ -83,6 +95,8 @@ def test_처리_오류는_세_번_해_보고_DLQ로_보낸다() -> None:
     assert len(tries) == 3 and sleeps == [1.0, 2.0] and ch.calls == [("reject", (3, False))]
 
 
+# [상황] 첫 시도는 잠깐 끊겨 실패하고 두 번째는 성공한다.
+# [기대] 결과를 발행하고 완료(ack)한다.
 def test_두_번째_시도에_성공하면_ack한다() -> None:
     ch = FakeChannel()
     state = {"n": 0}
@@ -97,6 +111,9 @@ def test_두_번째_시도에_성공하면_ack한다() -> None:
     assert [c[0] for c in ch.calls] == ["publish", "ack"]
 
 
+# [상황] 정합 단계 진행률(3장 중 1장)을 알린다. 다음엔 Redis가 꺼진 상태로 알린다.
+# [기대] 그 렌탈의 진행률 채널에 세트·시점·단계·진행 수가 JSON으로 나간다(웹 화면 진행 막대용).
+#        Redis가 꺼져 있어도 검사는 멈추지 않는다.
 def test_진행률은_렌탈_채널에_JSON으로_내고_실패해도_멈추지_않는다() -> None:
     sent: list[tuple[str, str]] = []
     redis = SimpleNamespace(publish=lambda ch, msg: sent.append((ch, msg)))
@@ -113,6 +130,8 @@ def test_진행률은_렌탈_채널에_JSON으로_내고_실패해도_멈추지_
     RedisProgress(SimpleNamespace(publish=down)).report(req, "ALIGN", 2, 3)  # 예외 없이 지나간다
 
 
+# [상황] 메시지 큐·Redis·워커 설정을 환경 변수에서 읽는다(gitops와 같은 이름).
+# [기대] 값이 채워지고 비밀번호는 출력에 안 보인다. 빠진 값은 이름만 알린다. Redis 설정이 없으면 진행률 없이 돈다.
 def test_설정은_gitops_이름으로_읽고_빠지면_이름만_알린다() -> None:
     env = {"RABBITMQ_HOST": "mq", "RABBITMQ_USERNAME": "u", "RABBITMQ_PASSWORD": "secret", "RABBITMQ_VHOST": "/trace"}
     amqp = load_amqp(env)
@@ -131,6 +150,8 @@ def test_설정은_gitops_이름으로_읽고_빠지면_이름만_알린다() ->
 amqp_only = pytest.mark.skipif(not os.environ.get("TRACE_ML_TEST_AMQP"), reason="실제 RabbitMQ 없음")
 
 
+# [상황] 워커가 꺼진 동안 촬영 세트 3개와 깨진 메시지 1개가 쌓였다(진짜 RabbitMQ가 있을 때만 돈다).
+# [기대] 워커를 켜면 4건을 모두 처리해 큐가 비고, 결과 3건이 세트마다 나가며, 깨진 메시지는 DLQ에 있다.
 @amqp_only
 def test_워커를_끈_채_올린_3건이_워커를_켜면_모두_처리된다() -> None:
     import pika
@@ -177,6 +198,8 @@ def test_워커를_끈_채_올린_3건이_워커를_켜면_모두_처리된다()
     conn.close()
 
 
+# [상황] 결과 메시지를 받을 큐가 없어 전달이 안 되는 상황.
+# [기대] 조용히 사라지지 않고 실패로 처리해 DLQ로 보낸다(결과 유실 방지).
 def test_결과_이벤트는_받을_큐가_없으면_실패하도록_mandatory로_보낸다() -> None:
     seen = {}
 

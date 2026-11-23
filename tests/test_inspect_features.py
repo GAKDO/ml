@@ -1,3 +1,7 @@
+# 이 파일이 확인하는 것: 흠집 검사(ML2)의 정합 보정(FR-INS-02). 윤곽으로 찾은 네 꼭짓점은 그림자·반사로 어긋날 수 있어서,
+# 이전 시점(예: 출고) 사진의 무늬 특징점과 맞춰 위치를 다듬는다.
+# 방법: SuperPoint·LightGlue(AI 특징점 모델, ONNX 파일) → 없거나 실패하면 ORB(OpenCV 기본 특징점) → 그래도 안 되면 윤곽 결과 그대로.
+
 """ML2 정합 보정(FR-INS-02): 윤곽 4점 + 특징점(SuperPoint·LightGlue ONNX 또는 ORB) 보정."""
 
 from __future__ import annotations
@@ -31,17 +35,20 @@ SIZE = face_size_px("TOP", DIMS)
 TEXTURE = face_texture(SIZE, 0)
 
 
+# 테스트 도구: 같은 면을 각도만 다르게 찍은 합성 사진.
 def _shot(seed: int) -> SyntheticPhoto:
     """같은 면을 원근·회전이 다르게 찍은 합성 사진."""
     return render(TEXTURE, random_corners(SIZE, PHOTO, np.random.default_rng(seed)), PHOTO, seed=seed)
 
 
+# 테스트 도구: 이전 시점에 펼쳐 둔 기준 이미지.
 def _reference() -> np.ndarray:
     """이전 시점의 펼친 이미지(정답 호모그래피로 펼친 다른 사진)."""
     shot = _shot(100)
     return cv2.warpPerspective(shot.image, shot.homography, SIZE, flags=cv2.INTER_LINEAR)
 
 
+# 테스트 도구: 윤곽 정합 결과. jitter를 주면 그림자·반사로 꼭짓점이 어긋난 상황을 흉내 낸다.
 def _contour(shot: SyntheticPhoto, jitter: float = 0.0, seed: int = 0) -> Alignment:
     """윤곽 정합. jitter > 0이면 그림자·반사로 윤곽이 어긋난 경우처럼 꼭짓점을 흔든다."""
     result = align_photo(shot.image, SIZE)
@@ -57,6 +64,8 @@ def _err(alignment: Alignment, shot: SyntheticPhoto) -> float:
     return float(corner_error_px(alignment.homography, shot.corners, SIZE).max())
 
 
+# [상황] 정합 방식 설정이 없거나 contour, 또는 모르는 값(sift)이다.
+# [기대] 기본은 윤곽만(보정 없음), 모르는 값은 설정 오류.
 def test_TRACE_ALIGN_기본은_contour이고_보정기가_없다() -> None:
     assert align_mode({}) == "contour"
     assert load_refiner({}) is None
@@ -65,6 +74,8 @@ def test_TRACE_ALIGN_기본은_contour이고_보정기가_없다() -> None:
         align_mode({"TRACE_ALIGN": "sift"})
 
 
+# [상황] 윤곽이 잘 맞은 사진을 ORB로 보정한다.
+# [기대] 보정 뒤 오차가 윤곽보다 나쁘지 않다. 이벤트에 싣는 방식 값은 CONTOUR(codes.yaml에 ORB 값이 없음).
 @pytest.mark.parametrize("seed", [1, 2, 3])
 def test_특징점_보정은_윤곽보다_꼭짓점_오차가_작거나_같다(seed: int) -> None:
     shot = _shot(seed)
@@ -76,6 +87,8 @@ def test_특징점_보정은_윤곽보다_꼭짓점_오차가_작거나_같다(s
     assert refined.rectified.shape[:2] == (SIZE[1], SIZE[0])
 
 
+# [상황] 윤곽 꼭짓점이 6px쯤 흔들려 어긋난 사진.
+# [기대] 보정 전 오차 5px 초과가 보정 뒤 2px 미만으로 준다.
 @pytest.mark.parametrize("seed", [4, 5])
 def test_윤곽이_어긋난_사진은_특징점_보정으로_꼭짓점_오차가_크게_준다(seed: int) -> None:
     shot = _shot(seed)
@@ -86,6 +99,8 @@ def test_윤곽이_어긋난_사진은_특징점_보정으로_꼭짓점_오차�
     assert refined.error_px is not None
 
 
+# [상황] 기준 이미지가 무늬 없는 단색이라 맞는 점이 없다.
+# [기대] 억지로 맞추지 않고 윤곽 결과를 그대로 쓴다.
 def test_인라이어가_부족하면_윤곽_결과를_그대로_둔다() -> None:
     shot = _shot(1)
     contour = _contour(shot)
@@ -94,6 +109,8 @@ def test_인라이어가_부족하면_윤곽_결과를_그대로_둔다() -> Non
     assert refined is contour and refined.align_method == "contour"
 
 
+# [상황] 기준 이미지가 다른 면(무늬가 전혀 다름)이다.
+# [기대] 맞는 점이 모자라 윤곽 결과를 쓴다.
 def test_다른_면의_기준이면_인라이어가_부족해_윤곽_결과를_쓴다() -> None:
     shot = _shot(1)
     contour = _contour(shot)
@@ -102,12 +119,16 @@ def test_다른_면의_기준이면_인라이어가_부족해_윤곽_결과를_�
     assert refined is contour
 
 
+# [상황] 기준 이미지 크기가 면 크기와 다르다.
+# [기대] 윤곽 결과를 쓴다.
 def test_기준_크기가_다르면_윤곽_결과를_쓴다() -> None:
     shot = _shot(1)
     contour = _contour(shot)
     assert Refiner((OrbMatcher(),)).refine(shot.image, contour, np.zeros((10, 10, 3), np.uint8)) is contour
 
 
+# [상황] 특징점 모드인데 AI 모델 파일이 없거나 둘 중 하나만 있다.
+# [기대] ORB만 쓴다.
 def test_모델_파일이_없으면_ORB로_폴백한다(tmp_path: Path) -> None:
     refiner = load_refiner({"TRACE_ALIGN": "features", "TRACE_MODEL_DIR": str(tmp_path)})
     assert refiner is not None and [m.name for m in refiner.matchers] == ["orb"]
@@ -116,6 +137,8 @@ def test_모델_파일이_없으면_ORB로_폴백한다(tmp_path: Path) -> None:
     assert refiner is not None and [m.name for m in refiner.matchers] == ["orb"]
 
 
+# [상황] 모델 파일이 깨져 열리지 않는다.
+# [기대] ORB만 쓴다(워커가 멈추지 않음).
 def test_모델_파일이_열리지_않으면_ORB로_폴백한다(tmp_path: Path) -> None:
     for name in ("superpoint.onnx", "lightglue.onnx"):
         (tmp_path / name).write_bytes(b"broken")
@@ -134,6 +157,7 @@ class _Input:
         self.name = name
 
 
+# 테스트 도구: 가짜 SuperPoint. 모서리 점과 주변 조각을 특징으로 낸다.
 class FakeSuperPoint:
     """모서리 점 + 16×16 조각(256차원)을 기술자로 낸다. 입력 (1, 1, H, W) 0~1."""
 
@@ -153,6 +177,7 @@ class FakeSuperPoint:
         return [pts[None].astype(np.int64), np.ones((1, len(pts)), np.float32), desc[None]]
 
 
+# 테스트 도구: 가짜 LightGlue. 가깝고 서로 가장 닮은 점끼리 짝을 지어 낸다.
 class FakeLightGlue:
     """정규화된 점이 가깝고 기술자가 서로 가장 비슷한 짝을 matches0 (M, 3)[배치, i, j]로 낸다."""
 
@@ -175,6 +200,8 @@ class FakeLightGlue:
         return [np.stack([np.zeros_like(i), i, j[i]], axis=1), sim[i, j[i]]]
 
 
+# [상황] 두 모델 파일이 있고, 꼭짓점이 조금 어긋난 사진.
+# [기대] SuperPoint·LightGlue를 먼저(ORB는 예비) 쓰고, 오차가 줄며, 이벤트 방식 값은 LIGHTGLUE.
 def test_모델_파일이_있으면_SuperPoint_LightGlue로_다듬고_method는_LIGHTGLUE다(tmp_path: Path) -> None:
     for name in ("superpoint.onnx", "lightglue.onnx"):
         (tmp_path / name).write_bytes(b"onnx")
@@ -189,6 +216,8 @@ def test_모델_파일이_있으면_SuperPoint_LightGlue로_다듬고_method는_
     assert _err(refined, shot) < min(2.0, _err(contour, shot))
 
 
+# [상황] LightGlue 실행 중 오류가 난다.
+# [기대] 경고를 남기고 ORB로 다듬는다.
 def test_LightGlue_추론이_실패하면_ORB로_다듬는다(caplog: pytest.LogCaptureFixture) -> None:
     class Broken(FakeLightGlue):
         def run(self, _names: Any, feed: dict[str, np.ndarray]) -> list[np.ndarray]:
@@ -203,6 +232,7 @@ def test_LightGlue_추론이_실패하면_ORB로_다듬는다(caplog: pytest.Log
 
 # ---- 워커: 대여의 기준 이미지 ----
 
+# 테스트 도구: 합성 사진 한 장짜리 촬영 세트 업로드 메시지와 사진 본문을 만든다.
 def _set(seed: int, set_id: str) -> tuple[dict[str, Any], Any, dict[str, bytes]]:
     ok, buf = cv2.imencode(".png", _shot(seed).image)
     assert ok
@@ -212,6 +242,9 @@ def _set(seed: int, set_id: str) -> tuple[dict[str, Any], Any, dict[str, bytes]]
         {photo_id: body}
 
 
+# [상황] 같은 렌탈의 첫 촬영 세트와 다음 촬영 세트를 특징점 모드로 차례로 검사한다.
+# [기대] 첫 세트의 펼친 이미지를 기준으로 저장하고, 다음 세트는 그 기준으로 ORB 보정한다.
+#        기준은 덮어쓰지 않고, 결과 메시지는 약속한 형식(trace.inspect.completed)에 맞는다.
 def test_features_모드는_첫_시점_텍스처를_기준으로_남기고_다음_시점을_그_기준으로_다듬는다(
         caplog: pytest.LogCaptureFixture) -> None:
     s3 = MemoryS3()
@@ -236,6 +269,8 @@ def test_features_모드는_첫_시점_텍스처를_기준으로_남기고_다�
     contract_validator("trace.inspect.completed.schema.json").validate(out2)
 
 
+# [상황] 기본(윤곽만) 모드로 검사한다.
+# [기대] 모델 버전은 contour-v1이고 기준 이미지를 저장하지 않는다.
 def test_contour_모드는_기준_이미지를_만들지_않는다() -> None:
     s3 = MemoryS3()
     event, _, bodies = _set(1, "set1")
@@ -246,6 +281,8 @@ def test_contour_모드는_기준_이미지를_만들지_않는다() -> None:
     assert not any(key.startswith("align-ref/") for _, key in s3.objects)
 
 
+# [상황] 저장된 기준 이미지가 깨져 읽을 수 없다.
+# [기대] 새 이미지로 덮어쓰지 않는다(첫 시점 기준을 잃지 않게).
 def test_기존_기준을_읽지_못해도_새_텍스처로_덮어쓰지_않는다() -> None:
     s3 = MemoryS3()
     ref_key = ("trace-derived", f"align-ref/{pid('rental1')}/TOP.png")

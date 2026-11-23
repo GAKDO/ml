@@ -1,3 +1,7 @@
+# 이 파일이 확인하는 것: 데이터셋 빌더(ML1) 스토리 2. 학습한 모델을 "어떤 데이터셋 버전으로 학습했는지"와 함께
+# 모델 저장소(trace-models)에 남긴다(FR-DAT-05). 나중에 모델 결과를 데이터까지 거슬러 확인할 수 있게 하기 위함.
+# 실제 GPU 학습 대신 가짜 학습기를 쓴다.
+
 """ML1 스토리 2: 학습 결과를 데이터셋 버전과 함께 저장한다 (FR-DAT-05)."""
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ METRICS = {"epochs": 1, "imgsz": 640, "val": {"box": {"map50": 0.5, "map": 0.3},
            "test": {"box": {"map50": 0.45, "map": 0.25}, "mask": {"map50": 0.35, "map": 0.15}}}
 
 
+# 테스트 도구: 실제 YOLO 학습 대신 받은 설정을 기록하고 가짜 모델 파일·지표를 돌려준다.
 class FakeTrainer:
     """Ultralytics 대신: 받은 폴더를 확인하고 가짜 가중치·ONNX를 만든다."""
 
@@ -37,6 +42,7 @@ class FakeTrainer:
         return TrainOutput(out / "best.pt", out / "best.onnx", METRICS)
 
 
+# 테스트 도구: 기기 3대(REG03은 시험용)의 라벨 사진으로 데이터셋 v001을 빌드해 둔다.
 def built() -> World:
     w = World()
     w.registry.save_device(Device("REG03", "MacBook Air", "TEST"))
@@ -52,6 +58,9 @@ def _train(w: World, tmp: Path, trainer=None, version: str = "v001"):
                  cache_dir=tmp, trainer=trainer or FakeTrainer(), now=lambda: next(clock))
 
 
+# [상황] 데이터셋 v001로 학습한다.
+# [기대] 모델 저장소에 가중치·ONNX·지표·학습 기록·model.json이 올라가고, 기록에 데이터셋 버전·
+#        데이터 목록(manifest) 해시·빌더 커밋이 적힌다. 재학습 단계가 쓰도록 로컬 폴더에도 같은 파일을 둔다.
 def test_v001로_학습하면_trace_models에_가중치_ONNX_지표_run_json이_있고_버전과_manifest_해시가_적힌다(tmp_path):
     w = built()
     result = _train(w, tmp_path)
@@ -69,6 +78,8 @@ def test_v001로_학습하면_trace_models에_가중치_ONNX_지표_run_json이_
     assert (local / "model.json").read_bytes() == w.s3.objects[("trace-models", result.prefix + "model.json")][0]
 
 
+# [상황] 학습 전에 데이터셋을 내려받아 폴더를 만든다.
+# [기대] YOLO가 읽는 구조(학습·시험 사진과 라벨 수가 같음)이고, 시험용 기기(REG03) 사진이 시험 칸에 있다.
 def test_받은_폴더는_YOLO_분할_구조이고_data_yaml이_그_폴더를_가리킨다(tmp_path):
     w = built()
     trainer = FakeTrainer()
@@ -81,6 +92,8 @@ def test_받은_폴더는_YOLO_분할_구조이고_data_yaml이_그_폴더를_�
     assert spec.has_test and spec.base_weights == "yolo11s-seg.pt"
 
 
+# [상황] "trace-ml train v001" 후 "trace-ml models list"를 실행한다.
+# [기대] 목록에 모델마다 데이터셋 버전·파일·성능(mask mAP50)이 보인다.
 def test_학습이_끝나면_models_list에서_모델마다_데이터셋_버전이_보인다(tmp_path, capsys):
     w = built()
     deps = Deps({"MINIO_ENDPOINT": "http://minio.test", "MINIO_ACCESS_KEY": "ak", "MINIO_SECRET_KEY": "sk"},
@@ -92,6 +105,8 @@ def test_학습이_끝나면_models_list에서_모델마다_데이터셋_버전�
     assert w.registry.runs()[0].dataset_version == "v001"
 
 
+# [상황] 데이터셋을 만든 뒤 원본 사진 하나의 내용이 바뀌었다.
+# [기대] 학습 전에 멈추고 바뀐 사진 이름을 알린다. 모델 저장소에는 아무것도 올라가지 않는다.
 def test_trace_raw_사진_하나가_바뀌면_학습_전에_멈추고_바뀐_키를_알린다(tmp_path):
     w = built()
     w.s3.objects[("trace-raw", "REG01/REG01_TOP_L1_CAM1_01.jpg")] = (b"changed", {})
@@ -102,6 +117,8 @@ def test_trace_raw_사진_하나가_바뀌면_학습_전에_멈추고_바뀐_키
     assert trainer.specs == [] and w.s3.keys("trace-models") == []
 
 
+# [상황] 저장소의 데이터 목록(manifest)이 기록된 것과 다르다.
+# [기대] 멈춘다(조작되거나 망가진 데이터셋으로 학습하지 않게).
 def test_manifest가_기록과_다르면_멈춘다(tmp_path):
     w = built()
     w.s3.objects[("trace-datasets", "v001/manifest.json")] = (b'{"items": []}', {})
@@ -109,6 +126,8 @@ def test_manifest가_기록과_다르면_멈춘다(tmp_path):
         _train(w, tmp_path)
 
 
+# [상황] 없는 데이터셋 버전(v009)으로 학습한다.
+# [기대] 실패한다(명령은 종료 코드 1).
 def test_없는_버전으로_학습하면_실패한다(tmp_path, capsys):
     w = built()
     with pytest.raises(RegistryError):
@@ -118,6 +137,8 @@ def test_없는_버전으로_학습하면_실패한다(tmp_path, capsys):
     assert main(["train", "v009", "--cache", str(tmp_path)], deps=deps) == 1
 
 
+# [상황] 같은 버전으로 두 번째 학습을 한다.
+# [기대] 데이터 목록만 다시 받고, 사진은 이미 받은 것을 그대로 쓴다. 학습 기록은 2건.
 def test_이미_받은_파일은_해시가_같으면_다시_받지_않는다(tmp_path):
     w = built()
     _train(w, tmp_path)
@@ -131,6 +152,9 @@ def test_이미_받은_파일은_해시가_같으면_다시_받지_않는다(tmp
     assert len(w.registry.runs()) == 2
 
 
+# [상황] 집 PC에서 따로 학습한 결과 폴더를 v001 모델로 등록한다.
+# [기대] 그 가중치가 그대로 올라가고, 성능은 v001 검증 데이터로 다시 잰다.
+#        당시 학습 설정(args.yaml)도 기록되고 부스용 model.json이 만들어진다.
 def test_따로_학습한_폴더를_기록하면_그_가중치가_올라가고_지표는_이_버전으로_다시_잰다(tmp_path):
     from trace_ml.training.yolo import existing_run
 
@@ -159,6 +183,8 @@ def test_따로_학습한_폴더를_기록하면_그_가중치가_올라가고_�
     assert (run_dir / "registered" / "best.onnx").read_bytes() == b"offline-onnx"
 
 
+# [상황] 등록하려는 폴더에 ONNX가 없거나, 검수 추가분·조각 옵션과 함께 쓰거나, 폴더가 없다.
+# [기대] 기록하지 않고, 명령은 --from-run 오류와 종료 코드 2를 돌려준다.
 def test_따로_학습한_폴더에_ONNX가_없거나_검수분과_같이_쓰면_기록하지_않는다(tmp_path, capsys):
     from trace_ml.training.yolo import existing_run
 
