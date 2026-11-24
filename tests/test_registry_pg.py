@@ -1,8 +1,9 @@
-# 이 파일이 확인하는 것: 데이터셋 버전·기기 배정·학습 기록을 진짜 PostgreSQL에 저장하는 부분(ml 스키마).
-# 기기 배정: 촬영한 노트북(기기 ID)을 학습(TRAIN)·검증(VAL)·시험(TEST) 중 어디에 쓸지 정한 기록.
-# DB가 있는 CI에서만 돌고(TRACE_ML_TEST_DB=1), 없으면 건너뛴다.
+"""이 파일이 확인하는 것: 데이터셋 버전·기기 배정·학습 기록을 진짜 PostgreSQL에 저장하는 부분(ml 스키마).
+기기 배정: 촬영한 노트북(기기 ID)을 학습(TRAIN)·검증(VAL)·시험(TEST) 중 어디에 쓸지 정한 기록.
+DB가 있는 CI에서만 돌고(TRACE_ML_TEST_DB=1), 없으면 건너뛴다.
 
-"""PgRegistry를 실제 PostgreSQL에서 확인한다. TRACE_ML_TEST_DB=1과 DB 환경 변수가 있을 때만(CI 서비스)."""
+PgRegistry를 실제 PostgreSQL에서 확인한다. TRACE_ML_TEST_DB=1과 DB 환경 변수가 있을 때만(CI 서비스).
+"""
 
 from __future__ import annotations
 

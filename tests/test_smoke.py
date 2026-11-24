@@ -1,4 +1,4 @@
-# 이 파일이 확인하는 것: trace-ml 패키지가 설치되어 버전을 알려 주는지(가장 기본적인 동작 확인).
+"""이 파일이 확인하는 것: trace-ml 패키지가 설치되어 버전을 알려 주는지(가장 기본적인 동작 확인)."""
 
 from trace_ml import __version__
 from trace_ml.__main__ import main
@@ -6,7 +6,7 @@ from trace_ml.__main__ import main
 
 # [상황] 패키지 버전 값을 읽는다.
 # [기대] 0.1.0이다.
-def test_version():
+def test_패키지_버전_문자열을_읽을_수_있다():
     assert __version__ == "0.1.0"
 
 

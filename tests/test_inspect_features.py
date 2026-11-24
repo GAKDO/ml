@@ -1,8 +1,9 @@
-# 이 파일이 확인하는 것: 흠집 검사(ML2)의 정합 보정(FR-INS-02). 윤곽으로 찾은 네 꼭짓점은 그림자·반사로 어긋날 수 있어서,
-# 이전 시점(예: 출고) 사진의 무늬 특징점과 맞춰 위치를 다듬는다.
-# 방법: SuperPoint·LightGlue(AI 특징점 모델, ONNX 파일) → 없거나 실패하면 ORB(OpenCV 기본 특징점) → 그래도 안 되면 윤곽 결과 그대로.
+"""이 파일이 확인하는 것: 흠집 검사(ML2)의 정합 보정(FR-INS-02). 윤곽으로 찾은 네 꼭짓점은 그림자·반사로 어긋날 수 있어서,
+이전 시점(예: 출고) 사진의 무늬 특징점과 맞춰 위치를 다듬는다.
+방법: SuperPoint·LightGlue(AI 특징점 모델, ONNX 파일) → 없거나 실패하면 ORB(OpenCV 기본 특징점) → 그래도 안 되면 윤곽 결과 그대로.
 
-"""ML2 정합 보정(FR-INS-02): 윤곽 4점 + 특징점(SuperPoint·LightGlue ONNX 또는 ORB) 보정."""
+ML2 정합 보정(FR-INS-02): 윤곽 4점 + 특징점(SuperPoint·LightGlue ONNX 또는 ORB) 보정.
+"""
 
 from __future__ import annotations
 
