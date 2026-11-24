@@ -1,12 +1,13 @@
-# 이 파일이 확인하는 것: Label Studio 연동(ML3, specs/001-labelstudio-sync/spec.md의 수용 시나리오).
-# Label Studio: 사람이 사진에 흠집 다각형을 그려 라벨을 다는 웹 도구.
-#   - setup: 프로젝트(흠집 4종 다각형 + "흠집 없음" 체크)를 만들고 원본 사진 저장소(trace-raw)·라벨 저장소(trace-labels)를 연결
-#   - sync: 새 사진을 작업으로 가져오고, 제출된 라벨을 라벨 저장소로 내보내기
-#   - mark-clean: 고른 기기의 아직 라벨 없는 사진에 "흠집 없음"을 한꺼번에 제출
-#   - review: 그린 라벨을 사진 위에 겹친 확인용 모아보기 만들기
-# 가짜 Label Studio(fake_ls.py)를 쓰므로 진짜 서버 없이 돈다. 토큰 값은 모두 가짜다.
+"""이 파일이 확인하는 것: Label Studio 연동(ML3, specs/001-labelstudio-sync/spec.md의 수용 시나리오).
+Label Studio: 사람이 사진에 흠집 다각형을 그려 라벨을 다는 웹 도구.
+  - setup: 프로젝트(흠집 4종 다각형 + "흠집 없음" 체크)를 만들고 원본 사진 저장소(trace-raw)·라벨 저장소(trace-labels)를 연결
+  - sync: 새 사진을 작업으로 가져오고, 제출된 라벨을 라벨 저장소로 내보내기
+  - mark-clean: 고른 기기의 아직 라벨 없는 사진에 "흠집 없음"을 한꺼번에 제출
+  - review: 그린 라벨을 사진 위에 겹친 확인용 모아보기 만들기
+가짜 Label Studio(fake_ls.py)를 쓰므로 진짜 서버 없이 돈다. 토큰 값은 모두 가짜다.
 
-"""ML3 수용 시나리오 (specs/001-labelstudio-sync/spec.md)."""
+ML3 수용 시나리오 (specs/001-labelstudio-sync/spec.md).
+"""
 
 from __future__ import annotations
 

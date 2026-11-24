@@ -67,6 +67,17 @@ AI는 후보만 넓게 잡고, 관리자가 확정한 흠집만 등급과 봉인
 python -m ruff check . && python -m pytest
 ```
 
+GPU 없이 작은 합성 사진으로 돕니다. 아래 테스트는 필요한 서버나 도구가 없으면 **건너뜁니다**(실패가 아님). CI는 PostgreSQL·RabbitMQ를 띄우고 환경 변수를 켜서 모두 돌립니다.
+
+| 테스트 | 건너뛰는 조건 | 켜는 법 |
+|---|---|---|
+| `tests/test_registry_pg.py` 전체(학습 기록부를 PostgreSQL에 저장) | `TRACE_ML_TEST_DB`가 없을 때 | PostgreSQL을 띄우고 `TRACE_ML_TEST_DB=1`과 `POSTGRES_HOST`·`DB_USERNAME`·`DB_PASSWORD`를 준다 |
+| `tests/test_inspect_runner.py`의 "꺼진 동안 쌓인 작업 처리" 등 진짜 RabbitMQ 테스트 | `TRACE_ML_TEST_AMQP`가 없을 때 | RabbitMQ를 띄우고 `TRACE_ML_TEST_AMQP=1`과 `RABBITMQ_HOST`·`RABBITMQ_USERNAME`·`RABBITMQ_PASSWORD`를 준다 |
+| `tests/test_retrain.py`의 서버·Jetson 배포 스크립트 | Windows, 또는 `bash`·`sha256sum`이 없을 때 | 리눅스에서 돌린다(배포 스크립트가 리눅스용) |
+| 이벤트 계약 검사(`tests/inspect_helpers.py`의 `contract_validator`를 쓰는 테스트) | contracts 스키마를 읽을 수 없을 때(옆 폴더에 없고 GitHub에도 닿지 않음) | contracts 레포를 이 레포 옆에 두거나 `TRACE_CONTRACTS_DIR`로 위치를 준다 |
+
+비밀번호 같은 값은 각자 환경 변수로만 주고 파일에 적지 않습니다. 테스트 파일마다 맨 위 설명(docstring)에 무엇을 확인하는지, 테스트마다 `[상황]`·`[기대]`를 적어 두었습니다.
+
 ## CI
 
 | 워크플로 | 언제 | 하는 일 |
