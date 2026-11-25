@@ -1,4 +1,11 @@
-"""AI Hub 사전 학습: 여러 모양의 라벨 JSON을 읽어 YOLO-seg 데이터셋을 만든다."""
+"""이 파일이 확인하는 것: AI Hub 공개 데이터로 하는 "사전 학습" 준비. 우리 노트북 사진이 적어서, 먼저 비슷한 흠집
+공개 사진으로 모델을 길들인다. 공개 데이터는 라벨 JSON 모양이 제각각(AI Hub·labelme·COCO)이라
+여러 모양을 읽어 YOLO 학습 형식으로 바꾸는지 본다.
+  - scan: 어떤 라벨 이름이 몇 개 있는지 훑어보기 / map: 공개 데이터 이름 → 우리 흠집 종류 대응표
+  - build: 대응표대로 학습용 데이터셋 만들기
+
+AI Hub 사전 학습: 여러 모양의 라벨 JSON을 읽어 YOLO-seg 데이터셋을 만든다.
+"""
 
 from __future__ import annotations
 
@@ -19,6 +26,7 @@ def _photo(path: Path, w: int = 800, h: int = 600) -> None:
     cv2.imwrite(str(path), np.full((h, w, 3), 128, np.uint8))
 
 
+# 테스트 도구: AI Hub·labelme·COCO 세 가지 모양의 라벨이 섞인 가짜 공개 데이터 폴더를 만든다.
 def _aihub(root: Path, n: int = 12) -> None:
     """원천·라벨링 폴더가 나뉜 이미지별 JSON(AI Hub 흔한 모양) + labelme 하나 + COCO 하나."""
     for i in range(n):
@@ -41,6 +49,8 @@ def _aihub(root: Path, n: int = 12) -> None:
     (root / "라벨링데이터" / "coco.json").write_text(json.dumps(coco), encoding="utf-8")
 
 
+# [상황] 흠집 다각형 좌표가 [[x,y]…], [x,y,x,y…], [{x,y}…], 여러 조각, {x:[…],y:[…]} 모양으로 온다.
+# [기대] 모두 같은 다각형 목록으로 읽는다.
 def test_여러_모양의_점_목록을_폴리곤으로_읽는다() -> None:
     assert parse_points([[0, 0], [1, 0], [1, 1]]) == [[(0, 0), (1, 0), (1, 1)]]
     assert parse_points([0, 0, 1, 0, 1, 1]) == [[(0, 0), (1, 0), (1, 1)]]
@@ -49,6 +59,8 @@ def test_여러_모양의_점_목록을_폴리곤으로_읽는다() -> None:
     assert parse_points({"x": [0, 1, 1], "y": [0, 0, 1]}) == [[(0, 0), (1, 0), (1, 1)]]
 
 
+# [상황] 가짜 공개 데이터를 훑어본다.
+# [기대] 라벨 이름별 개수(긁힘 3 등), 다각형 없이 상자로만 표시된 것 4개, 사진 못 찾은 것 0개를 알려 준다.
 def test_scan은_라벨_이름과_개수_상자만_있는_객체를_보여_준다(tmp_path: Path) -> None:
     _aihub(tmp_path, 3)
     r = scan(read_items([tmp_path]))
@@ -57,6 +69,9 @@ def test_scan은_라벨_이름과_개수_상자만_있는_객체를_보여_준�
     assert r.no_image == 0
 
 
+# [상황] "긁힘→scratch, 흘러내림→버림" 같은 대응표로 데이터셋을 만든다.
+# [기대] 대응한 종류만 남고, 상자로만 표시된 흠집이 섞인 사진은 통째로 뺀다(빈 사진으로 오해 방지).
+#        좌표는 0~1 비율로 바뀌고 사진은 모두 jpg로 학습·검증 칸에 나뉜다.
 def test_build는_매핑한_클래스만_남기고_사진을_jpg로_나눠_담는다(tmp_path: Path) -> None:
     _aihub(tmp_path / "src", 12)
     mapping = {"긁힘": "scratch", "흘러내림": None, "dent": "dent", "crack": "crack"}
@@ -73,6 +88,8 @@ def test_build는_매핑한_클래스만_남기고_사진을_jpg로_나눠_담�
     assert all(p.suffix == ".jpg" for p in (tmp_path / "out" / "images").rglob("*.*"))
 
 
+# [상황] 대응표에 우리 종류가 아닌 이름(scratches, 오타)을 적는다.
+# [기대] 오류로 멈춘다.
 def test_map에_우리_클래스가_아닌_값이_있으면_멈춘다(tmp_path: Path) -> None:
     p = tmp_path / "map.yaml"
     p.write_text("긁힘: scratches\n", encoding="utf-8")
@@ -80,6 +97,8 @@ def test_map에_우리_클래스가_아닌_값이_있으면_멈춘다(tmp_path: 
         load_map(p)
 
 
+# [상황] "trace-ml pretrain scan"으로 대응표 초안을 받고, 고친 뒤 "pretrain build"를 실행한다.
+# [기대] 초안에 라벨 이름들이 적히고, 빌드는 640px 조각 데이터셋과 기록(build.json)까지 만든다.
 def test_scan_명령은_map_초안을_쓰고_build_명령은_640_타일까지_만든다(tmp_path: Path) -> None:
     _aihub(tmp_path / "src", 12)
     draft = tmp_path / "map.yaml"
@@ -94,6 +113,8 @@ def test_scan_명령은_map_초안을_쓰고_build_명령은_640_타일까지_�
     assert (out / "tile640" / "data.yaml").exists()
 
 
+# [상황] 이전 빌드 결과가 있는 폴더로 다시 빌드한다.
+# [기대] "이전 빌드 결과" 오류로 멈추고 기존 파일을 지우지 않는다.
 def test_같은_out에_다시_빌드하면_지우지_않고_멈춘다(tmp_path: Path) -> None:
     from trace_ml.pretrain.build import build
 
@@ -105,6 +126,8 @@ def test_같은_out에_다시_빌드하면_지우지_않고_멈춘다(tmp_path: 
     assert (dest / "images" / "train" / "old.jpg").exists()
 
 
+# [상황] 흠집 없는 사진 중 일부만 고르는 규칙과, 학습·검증 칸 나누는 규칙을 함께 쓴다.
+# [기대] 두 규칙이 서로 묶이지 않아, 고른 흠집 없는 사진이 학습 칸에도 들어간다.
 def test_빈_사진_선별은_분할_해시와_독립이라_train에도_들어간다() -> None:
     from trace_ml.pretrain.build import _unit, split_of
 
@@ -112,6 +135,8 @@ def test_빈_사진_선별은_분할_해시와_독립이라_train에도_들어�
     assert any(split_of(p, 0.1, 0.05) == "train" for p in kept)
 
 
+# [상황] 선박 도장 데이터(4032×3024 큰 사진, 평평한 좌표 목록)를 긴 변 2048 제한으로 빌드한다.
+# [기대] 흠집 1개를 읽고, 사진은 2048×1536으로 줄이며, 좌표 비율은 그대로 맞는다.
 def test_선박_도장_COCO_JSON_평평한_segmentation을_읽고_긴_변을_줄인다(tmp_path: Path) -> None:
     lbl, img, out = tmp_path / "lbl", tmp_path / "img", tmp_path / "out"
     lbl.mkdir()
@@ -130,11 +155,15 @@ def test_선박_도장_COCO_JSON_평평한_segmentation을_읽고_긴_변을_줄
     assert max(xs) == pytest.approx(1.0, abs=1e-4)
 
 
+# [상황] 긴 변 제한(max_side)을 -1로 준다.
+# [기대] 설정 오류로 시작하지 않는다.
 def test_긴_변_제한이_음수면_빌드를_시작하지_않는다(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="max_side"):
         build([], {}, tmp_path / "out", max_side=-1)
 
 
+# [상황] 라벨에는 "a.JPG", 실제 파일은 "a.jpg"다.
+# [기대] 대소문자가 달라도 사진을 찾는다.
 def test_JSON의_JPG와_실제_jpg_대소문자가_달라도_사진을_찾는다(tmp_path: Path) -> None:
     doc = {"images": [{"id": 1, "file_name": "2502_12_a.JPG", "width": 800, "height": 600}],
            "categories": [{"id": 2502, "name": "스크래치"}],
@@ -145,6 +174,8 @@ def test_JSON의_JPG와_실제_jpg_대소문자가_달라도_사진을_찾는다
     assert r.no_image == 0 and r.labels["스크래치"] == 1
 
 
+# [상황] 쓸 종류(스크래치)가 다각형 없이 상자로만 표시된 사진.
+# [기대] 흠집 없는 사진으로 넣지 않고 뺀다. 버리는 종류만 상자로 있으면 흠집 없는 사진으로 둘 수 있다.
 def test_쓰는_클래스가_상자로만_표시된_사진은_흠집_없는_사진으로_넣지_않는다(tmp_path: Path) -> None:
     doc = {"images": [{"id": 1, "file_name": "b.jpg", "width": 800, "height": 600}],
            "categories": [{"id": 1, "name": "스크래치"}, {"id": 2, "name": "볼트"}],
@@ -160,6 +191,8 @@ def test_쓰는_클래스가_상자로만_표시된_사진은_흠집_없는_사�
     assert sum(r2.images.values()) == 1
 
 
+# [상황] 아직 없는 폴더 경로로 대응표 초안을 쓴다.
+# [기대] 폴더를 만들어 쓰고, 상자로만 나온 라벨(찍힘)도 초안에 들어간다.
 def test_scan의_map_초안은_없는_폴더도_만들어_쓴다(tmp_path: Path) -> None:
     _aihub(tmp_path / "src", 2)
     draft = tmp_path / "새폴더" / "map.yaml"
@@ -167,6 +200,8 @@ def test_scan의_map_초안은_없는_폴더도_만들어_쓴다(tmp_path: Path)
     assert "찍힘" in draft.read_text(encoding="utf-8")  # 상자로만 나온 라벨도 초안에 있다
 
 
+# [상황] 다각형 칸이 비었거나 점이 모자란 라벨.
+# [기대] 상자로만 표시된 것으로 센다.
 def test_폴리곤_칸이_비었으면_상자만_있는_객체로_센다(tmp_path: Path) -> None:
     doc = {"images": [{"id": 1, "file_name": "c.jpg", "width": 800, "height": 600}],
            "categories": [{"id": 1, "name": "스크래치"}],
@@ -179,6 +214,8 @@ def test_폴리곤_칸이_비었으면_상자만_있는_객체로_센다(tmp_pat
     assert scan(read_items([tmp_path])).box_labels == {"스크래치": 1, "긁힘": 1}
 
 
+# [상황] x.jpg와 X.jpg처럼 대소문자만 다른 사진이 여럿 있다.
+# [기대] 정확히 같은 이름만 짝짓고, 어느 쪽인지 모를 때는 짝짓지 않는다(엉뚱한 사진에 라벨이 붙지 않게).
 def test_대소문자만_다른_사진이_여럿이면_정확한_이름만_짝짓는다(tmp_path: Path) -> None:
     from trace_ml.pretrain.aihub import index_images
 

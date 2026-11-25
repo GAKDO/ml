@@ -1,4 +1,9 @@
-"""부스(BO2)와 같은 640 타일로 잘라 학습하고, Jetson이 쓸 model.json을 함께 남긴다."""
+"""이 파일이 확인하는 것: 학습할 때 사진을 부스(BO2)와 똑같은 규칙의 640px 조각(타일)으로 잘라 쓰는지,
+그리고 부스 Jetson이 읽을 모델 설명 파일(model.json)을 함께 남기는지.
+학습과 실제 검사가 같은 크기로 사진을 봐야 정확도가 유지된다.
+
+부스(BO2)와 같은 640 타일로 잘라 학습하고, Jetson이 쓸 model.json을 함께 남긴다.
+"""
 
 from __future__ import annotations
 
@@ -24,6 +29,7 @@ def _jpeg(width: int = 1920, height: int = 1080) -> bytes:
     return buf.tobytes()
 
 
+# 테스트 도구: 기기 3대(학습·검증·시험용) 1080p 사진을 만들고 데이터셋 v001을 빌드한다.
 def _world(scratch: list[tuple[float, float]]) -> World:
     """REG01(TRAIN)·REG02(VAL)·REG03(TEST) 1080p 사진. REG01은 흠집 하나, 나머지는 흠집 없음."""
     w = World()
@@ -46,12 +52,16 @@ def _train(w: World, tmp, trainer: FakeTrainer, **kw):
                  cache_dir=tmp, trainer=trainer, now=lambda: next(clock), tile=640, **kw)
 
 
+# [상황] 1920×1080 사진을 조각으로 나눈다.
+# [기대] 640×640 조각들이 가로 0·512·1024·1280, 세로 0·440 위치에서 사진 전체를 빈틈없이 덮는다.
 def test_타일은_부스와_같은_규칙으로_1080p를_빠짐없이_덮는다():
     got = tiles(1920, 1080)
     assert sorted({t.x for t in got}) == [0, 512, 1024, 1280] and sorted({t.y for t in got}) == [0, 440]
     assert all((t.w, t.h) == (640, 640) for t in got)
 
 
+# [상황] 흠집 영역(사각형)이 조각 경계에 걸쳐 있다.
+# [기대] 조각 안에 들어온 부분만 잘라 남기고, 좌표를 조각 기준 0~1 비율로 바꾼다.
 def test_폴리곤은_타일_경계에서_잘리고_타일_기준_0_1로_바뀐다():
     square = [(600.0, 100.0), (700.0, 100.0), (700.0, 200.0), (600.0, 200.0)]
     assert area(clip(square, 0, 0, 640, 640)) == pytest.approx(40 * 100)
@@ -60,11 +70,16 @@ def test_폴리곤은_타일_경계에서_잘리고_타일_기준_0_1로_바뀐�
     assert lines[0].startswith("0 ") and max(vals[0::2]) == pytest.approx(1.0) and min(vals) >= 0
 
 
+# [상황] 흠집이 조각 안에 1×10px만 살짝 걸쳐 있다.
+# [기대] 그 조각에서는 라벨로 쓰지 않는다(학습에 혼란을 주는 조각 방지).
 def test_타일_안에_조금만_걸친_흠집은_버린다():
     sliver = [(639.0, 100.0), (700.0, 100.0), (700.0, 110.0), (639.0, 110.0)]  # 타일 0 안에 1×10px
     assert tile_label([(0, [(x / 1920, y / 1080) for x, y in sliver])], 1920, 1080, tiles(1920, 1080)[0], 16) == []
 
 
+# [상황] 흠집 하나가 있는 데이터셋으로 조각 학습을 한다.
+# [기대] 학습 크기는 640, 학습용 흠집 없는 조각은 흠집 조각 수만큼만 남긴다(빈 조각이 넘치지 않게).
+#        시험용은 사진 하나당 조각 8개를 모두 둔다.
 def test_타일로_학습하면_imgsz는_640이고_train의_빈_타일은_흠집_타일_수만큼만_둔다(tmp_path):
     w = _world([(10, 10), (20, 10), (20, 20), (10, 20)])  # 원본 % 좌표: (192,108)~(384,216) → 타일 1개
     trainer = FakeTrainer()
@@ -77,6 +92,9 @@ def test_타일로_학습하면_imgsz는_640이고_train의_빈_타일은_흠집
     assert len(list((tmp_path / "datasets" / "v001-tile640" / "images" / "test").glob("*.jpg"))) == 8
 
 
+# [상황] 조각 학습을 마친다.
+# [기대] model.json에 모델 버전 이름, 흠집 종류(scratch·dent·crack·stain, codes.yaml과 같은 순서),
+#        조각 크기 640·겹침 20%가 들어가고, 학습 기록에 흠집 조각 수가 남는다.
 def test_model_json은_부스가_읽는_modelVersion과_codes_yaml_클래스를_담는다(tmp_path):
     w = _world([(10, 10), (20, 10), (20, 20), (10, 20)])
     result = _train(w, tmp_path, FakeTrainer())
@@ -88,6 +106,8 @@ def test_model_json은_부스가_읽는_modelVersion과_codes_yaml_클래스를_
     assert run["tiling"]["counts"]["train"]["defect"] == 1
 
 
+# [상황] 검증(VAL)용 기기 사진이 하나도 없는 데이터셋.
+# [기대] "val" 오류로 학습을 시작하지 않는다(성능을 잴 수 없는 학습 방지).
 def test_val_사진이_없으면_학습하지_않는다(tmp_path):
     w = World()
     w.registry.save_device(Device("REG01", "MacBook Air", "TRAIN"))
@@ -100,6 +120,8 @@ def test_val_사진이_없으면_학습하지_않는다(tmp_path):
     assert trainer.specs == []
 
 
+# [상황] 조각 크기 0, 빈 조각 비율 -1, 명령줄 --tile -1을 준다.
+# [기대] 모두 설정 오류로 거절된다(명령은 종료 코드 2).
 def test_타일_크기나_빈_타일_비율이_음수면_자르지_않는다(tmp_path, capsys):
     with pytest.raises(ValueError):
         tiles(1920, 1080, size=0)

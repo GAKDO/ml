@@ -1,4 +1,11 @@
-"""메모리 MinIO·메모리 기록부·Label Studio 내보내기 만들기."""
+"""테스트 도구(테스트 자체는 아님): 데이터셋·학습 테스트가 쓰는 가짜 부품.
+  - MemoryS3: 메모리 속 가짜 MinIO(사진·데이터셋·모델 저장소). 목록을 작은 쪽으로 나눠 이어 받기도 시험
+  - MemoryRegistry: 메모리 속 가짜 기록부(기기 배정·데이터셋 버전·학습 기록)
+  - polygon·ann·task_doc: Label Studio에서 내보낸 라벨(흠집 다각형·흠집 없음) 형식 만들기
+  - World: 원본 사진과 그 라벨을 한 번에 만들어 주는 묶음
+
+메모리 MinIO·메모리 기록부·Label Studio 내보내기 만들기.
+"""
 
 from __future__ import annotations
 

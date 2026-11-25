@@ -58,6 +58,7 @@ jobs:
         run: python -m pip install -q -e ".[dev]"
       - name: ruff
         run: python -m ruff check .
+      # 커버리지 기준 70%: 서버 6개의 JaCoCo 줄 커버리지 40%와 같은 안전망. 11/20 실측(82~92%)보다 낮게 잡았다
       - name: 테스트
         env:
           PYTHONUTF8: "1"
@@ -70,4 +71,4 @@ jobs:
           RABBITMQ_HOST: localhost
           RABBITMQ_USERNAME: guest
           RABBITMQ_PASSWORD: guest
-        run: python -m pytest -q
+        run: python -m pytest -q --cov=src --cov-report=term-missing:skip-covered --cov-fail-under=70

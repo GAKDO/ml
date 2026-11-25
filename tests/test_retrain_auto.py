@@ -1,4 +1,10 @@
-"""자동 재학습(11/10): 예약 실행 하나로 검수 받기→학습→게이트→등록, 승인 한 번으로 서버·Jetson 동시 배포."""
+"""이 파일이 확인하는 것: 자동 재학습(11/10 추가). 예약 실행 한 번으로
+관리자 검수 결과 받기 → 재학습 → 새 모델이 더 나은지 확인(게이트) → 등록까지 사람 손 없이 진행하고,
+배포는 승인 한 번으로 학교 서버와 부스 Jetson에 같은 모델을 동시에 올린다(두 곳 모델이 같아야 하는 원칙).
+학교 서버 접속(ssh)과 하위 명령은 가짜로 흉내 낸다.
+
+자동 재학습(11/10): 예약 실행 하나로 검수 받기→학습→게이트→등록, 승인 한 번으로 서버·Jetson 동시 배포.
+"""
 
 from __future__ import annotations
 
@@ -18,6 +24,7 @@ from trace_ml.retrain.pipeline import ModelRegistry, RetrainError, promote
 NOW = datetime(2026, 11, 11, 18, 0, tzinfo=UTC)
 
 
+# 테스트 도구: 관리자가 "흠집 맞음"으로 확정한 검수 결과 CSV를 n장 분량으로 만든다.
 def _csv_text(n: int, confirmed_each: int = 1) -> str:
     buf = io.StringIO()
     w = csv.writer(buf)
@@ -30,6 +37,7 @@ def _csv_text(n: int, confirmed_each: int = 1) -> str:
     return buf.getvalue()
 
 
+# 테스트 도구: 모델 평가 결과 파일(기기 면 정확도·오탐 수)을 만든다.
 def _eval(path: Path, version: str, acc: float, fp: int) -> None:
     path.write_text(json.dumps({
         "data_sha256": "d" * 64, "split": "val", "conf": 0.25, "min_photos": 1, "model_version": version,
@@ -45,6 +53,7 @@ def _model(dir_: Path, version: str) -> Path:
     return dir_
 
 
+# 테스트 도구: 학교 서버 접속과 trace-ml 하위 명령(검수 내보내기·학습·평가)을 흉내 낸다.
 class FakeHosts:
     """학교 서버 ssh·trace-ml 하위 명령을 흉내 낸다. promote만 진짜 CLI로 돌려 레지스트리·묶음을 실제로 만든다."""
 
@@ -81,6 +90,7 @@ class FakeHosts:
         raise AssertionError(argv)
 
 
+# 테스트 도구: 현재 모델 v004가 등록된 상태와 자동 재학습 설정을 준비한다.
 @pytest.fixture
 def setup(tmp_path: Path) -> tuple[AutoConfig, ModelRegistry]:
     reg = ModelRegistry(tmp_path / "models" / "registry.json")
@@ -92,6 +102,9 @@ def setup(tmp_path: Path) -> tuple[AutoConfig, ModelRegistry]:
     return cfg, reg
 
 
+# [상황] 검수 결과가 기준(130장)을 넘고, 새로 학습한 v005가 v004보다 정확하다.
+# [기대] 8단계를 모두 통과해 v005가 현재 모델로 등록되고 배포 묶음이 만들어진다.
+#        보고서에 정확도 비교표가 남고, 다음 재학습은 v005 가중치에서 이어 학습한다.
 def test_검수가_기준을_넘고_새_모델이_나으면_사람_손_없이_등록과_배포_묶음까지_간다(tmp_path, setup):
     cfg, reg = setup
     status, report = auto(cfg, reg, {}, runner=FakeHosts(tmp_path), now=lambda: NOW)
@@ -106,6 +119,8 @@ def test_검수가_기준을_넘고_새_모델이_나으면_사람_손_없이_�
     assert json.loads((reg.path.parent / "auto-state.json").read_text())["weights"]["v005"].endswith("best.pt")
 
 
+# [상황] 검수 결과가 10장뿐이다.
+# [기대] 학습하지 않고 "아직 아님(NOT_READY)"으로 끝나며 보고서에 10장이 남는다.
 def test_검수가_기준_전이면_학습하지_않고_기준까지_남은_수만_남긴다(tmp_path, setup):
     cfg, reg = setup
     hosts = FakeHosts(tmp_path, rows=10)
@@ -114,6 +129,8 @@ def test_검수가_기준_전이면_학습하지_않고_기준까지_남은_수�
     assert json.loads(report.read_text())["reviews"]["photos"] == 10
 
 
+# [상황] 새 모델이 깨끗한 면을 흠집으로 잘못 잡는 일이 늘었다.
+# [기대] 게이트에서 멈추고 v004를 그대로 쓴다. 보고서에 "깨끗한 면 오탐" 사유가 남는다.
 def test_새_모델이_나빠지면_게이트에서_멈추고_현재_모델을_유지한다(tmp_path, setup):
     cfg, reg = setup
     status, report = auto(cfg, reg, {}, runner=FakeHosts(tmp_path, better=False), now=lambda: NOW)
@@ -121,6 +138,8 @@ def test_새_모델이_나빠지면_게이트에서_멈추고_현재_모델을_�
     assert "깨끗한 면 오탐" in json.loads(report.read_text())["steps"][-1]["detail"]
 
 
+# [상황] 학교 서버 접속이 키 문제로 거부된다.
+# [기대] 실패(FAILED)로 끝나되 보고서에 "ssh 키" 안내가 남고, 동시 실행 방지 잠금은 풀린다.
 def test_실패해도_리포트를_남기고_잠금을_푼다(tmp_path, setup):
     cfg, reg = setup
 
@@ -132,6 +151,8 @@ def test_실패해도_리포트를_남기고_잠금을_푼다(tmp_path, setup):
     assert not (Path(cfg.workRoot) / ".auto.lock").exists()
 
 
+# [상황] 배포를 승인했는데 부스 Jetson에 올라간 모델 해시가 서버와 다르다.
+# [기대] 서버는 성공, Jetson은 실패로 표시되고, 두 곳이 일치하지 않으니 되돌리기(rollback) 안내가 나온다.
 def test_승인하면_서버와_Jetson에_같은_묶음을_올리고_두_해시가_같아야_끝난다(tmp_path, setup):
     cfg, reg = setup
     auto(cfg, reg, {}, runner=FakeHosts(tmp_path), now=lambda: NOW)
@@ -150,6 +171,8 @@ def test_승인하면_서버와_Jetson에_같은_묶음을_올리고_두_해시�
     assert not res["matched"] and "rollback" in res["message"]
 
 
+# [상황] 배포 대상으로 서버만 설정했다.
+# [기대] "모델 일치" 원칙 위반으로 배포를 거부한다(서버와 부스 결과가 달라지는 것 방지).
 def test_배포_대상이_한_곳뿐이면_모델_일치_원칙으로_거부한다(tmp_path, setup):
     cfg, reg = setup
     auto(cfg, reg, {}, runner=FakeHosts(tmp_path), now=lambda: NOW)
@@ -158,6 +181,8 @@ def test_배포_대상이_한_곳뿐이면_모델_일치_원칙으로_거부한�
         deploy(cfg, reg, {}, runner=lambda a: (0, "", ""))
 
 
+# [상황] 설정 파일에 서버·Jetson 주소만 적는다.
+# [기대] 배포 스크립트 이름과 Jetson 포트(22)가 기본값으로 채워진다.
 def test_설정_파일의_대상은_기본_스크립트가_정해진다(tmp_path):
     p = tmp_path / "auto.json"
     p.write_text(json.dumps({"dataset": "v004", "evalData": "e", "baseWeights": "b", "workRoot": "w",
@@ -166,6 +191,8 @@ def test_설정_파일의_대상은_기본_스크립트가_정해진다(tmp_path
     assert (cfg.server.script, cfg.jetson.script, cfg.jetson.port) == ("deploy-server.sh", "deploy-jetson.sh", 22)
 
 
+# [상황] 검수 CSV 형식이 망가져 예상 못 한 오류가 난다.
+# [기대] 실패로 끝나되 보고서와 알림(웹훅)이 남고 잠금이 풀린다.
 def test_RetrainError가_아닌_실패도_리포트와_알림을_남긴다(tmp_path, setup):
     cfg, reg = setup
     sent: list[str] = []
@@ -180,6 +207,8 @@ def test_RetrainError가_아닌_실패도_리포트와_알림을_남긴다(tmp_p
     assert sent and not (Path(cfg.workRoot) / ".auto.lock").exists()
 
 
+# [상황] 다른 자동 재학습이 돌고 있다는 잠금 파일이 있다.
+# [기대] 시작하지 않고 알림을 보내며 잠금 파일은 건드리지 않는다.
 def test_잠금이_남아_있으면_시작하지_않고_알린다(tmp_path, setup):
     cfg, reg = setup
     lock = Path(cfg.workRoot) / ".auto.lock"
@@ -192,6 +221,8 @@ def test_잠금이_남아_있으면_시작하지_않고_알린다(tmp_path, setu
     assert sent and lock.exists()
 
 
+# [상황] 잠금 파일을 만들 수 없는 경로다.
+# [기대] "잠금 파일을 만들지 못함" 오류로 바꿔 보고서·알림 흐름을 탈 수 있게 한다.
 def test_잠금_파일을_만들_수_없으면_RetrainError로_알릴_수_있게_바꾼다(tmp_path: Path) -> None:
     blocker = tmp_path / "file"
     blocker.write_text("x", encoding="utf-8")
@@ -200,6 +231,8 @@ def test_잠금_파일을_만들_수_없으면_RetrainError로_알릴_수_있게
         lock.__enter__()
 
 
+# [상황] 학교 서버에 보낼 경로에 공백·세미콜론(명령 끼워 넣기 시도)이 들어 있다.
+# [기대] 안전하게 따옴표로 감싸되 "~/"(홈 폴더)는 살린다. 다른 사람 홈(~other)은 거부한다.
 def test_원격_경로는_인용하되_홈_확장은_남긴다() -> None:
     assert auto_mod._rq("~/trace releases") == "~/'trace releases'"
     assert auto_mod._rq("/srv/a;rm -rf x") == "'/srv/a;rm -rf x'"
@@ -208,6 +241,8 @@ def test_원격_경로는_인용하되_홈_확장은_남긴다() -> None:
         auto_mod._rq("~other/trace-releases")
 
 
+# [상황] 모델별 가중치 위치를 상태 파일에 두 번 기록한다.
+# [기대] 두 기록이 모두 남고, 중간 임시 파일은 남지 않는다(쓰다 끊겨도 파일이 깨지지 않게).
 def test_상태_파일은_임시_파일을_거쳐_바꿔_끼운다(tmp_path: Path) -> None:
     from trace_ml.retrain.pipeline import ModelRegistry
 
